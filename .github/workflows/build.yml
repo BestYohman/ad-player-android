@@ -1,0 +1,65 @@
+# Builds the Android app on GitHub every time a file changes (or when "Run workflow" is pressed).
+# The finished app (ADPlayer.apk) appears under Releases as "AD Player (latest)".
+name: Build the Android app
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Build
+        run: |
+          set -o pipefail
+          gradle :app:assembleRelease --no-daemon --console=plain 2>&1 | tee build.log
+
+      - name: List the errors
+        if: failure()
+        run: |
+          {
+            echo "## Build errors"
+            echo '```'
+            grep -E "^e: |error:|What went wrong|> " build.log | sed -e "s#$PWD/##" | head -80
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -E "^e: |error:" build.log | sed -e "s#$PWD/##" | head -80 > errors.txt || true
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-log
+          path: |
+            build.log
+            errors.txt
+
+      - name: Name the app
+        run: cp app/build/outputs/apk/release/app-release.apk ADPlayer.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ADPlayer
+          path: ADPlayer.apk
+
+      - name: Publish as "AD Player (latest)"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest ADPlayer.apk --title "AD Player (latest)" \
+            --notes "Build ${{ github.run_number }}. On the phone: tap ADPlayer.apk to download it, then open it to install."
