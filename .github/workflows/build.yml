@@ -4,6 +4,7 @@ name: Build the Android app
 
 on:
   push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -40,13 +41,16 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           grep -E "^e: |error:" build.log | sed -e "s#$PWD/##" | head -80 > errors.txt || true
 
-      - uses: actions/upload-artifact@v4
+      - name: Keep the build log in the ci-log branch
         if: failure()
-        with:
-          name: build-log
-          path: |
-            build.log
-            errors.txt
+        run: |
+          mkdir -p "$RUNNER_TEMP/cilog" && cd "$RUNNER_TEMP/cilog"
+          git init -q
+          tail -c 900000 "$GITHUB_WORKSPACE/build.log" > build.log || true
+          cp "$GITHUB_WORKSPACE/errors.txt" . 2>/dev/null || true
+          git add -A
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "Build ${{ github.run_number }} failed"
+          git push -fq "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" HEAD:refs/heads/ci-log
 
       - name: Name the app
         run: cp app/build/outputs/apk/release/app-release.apk ADPlayer.apk
