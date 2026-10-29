@@ -839,6 +839,7 @@ object Engine {
     private fun tgBegin(d: JSONObject) {
         val t = Tg(d.s("id"))
         t.kind = d.s("kind"); t.role = d.s("role"); t.msgSeq = d.i("msg_seq"); t.last = d
+        skips = 0; stalls = 0
         tg = t
         invites = emptyList()
         browse = false
@@ -858,9 +859,11 @@ object Engine {
         try {
             val d = Api.post("/api/play/together/beat", mapOf("cid" to Prefs.cid, "room" to t.room,
                 "pos" to (if (rd) mTime() else 0.0).toString(), "ready" to if (rd) "1" else "0",
-                "buf" to if (mBuf()) "1" else "0", "iseq" to t.iseqLoaded.toString()))
+                "buf" to if (mBuf()) "1" else "0", "iseq" to t.iseqLoaded.toString(),
+                "sk" to skips.toString(), "stl" to stalls.toString()))
             if (tg !== t) return
-            t.rtt = min(2.0, (SystemClock.elapsedRealtime() - t0) / 1000.0)
+            val r = (SystemClock.elapsedRealtime() - t0) / 1000.0
+            if (r < 3) t.rtt = t.rtt * 0.7 + r * 0.3
             tgApply(d)
         } catch (e: ApiError) {
             if (e.login) signedOut(e.message ?: "")
@@ -904,8 +907,31 @@ object Engine {
     }
 
     private fun mTime(): Double = if (mode == Mode.BOOK) bookPos() else exo.currentPosition / 1000.0
-    private fun mBuf(): Boolean = mReady() && exo.playbackState == Player.STATE_BUFFERING
-    private fun mSeek(t: Double) { if (mode == Mode.BOOK) bookSeek(t) else exo.seekTo((max(0.0, t) * 1000).toLong()) }
+    private var bufSince = 0L
+    private var seekWait = 0L
+    private var seekCost = 0.5
+    private var stuck = false
+    private var skips = 0
+    private var stalls = 0
+
+    /** Still loading for more than a second (a quick hiccup isn't reported). Also learns how long a skip takes here. */
+    private fun mBuf(): Boolean {
+        val b = mReady() && exo.playbackState == Player.STATE_BUFFERING
+        val now = SystemClock.elapsedRealtime()
+        if (seekWait > 0 && mReady() && !b) {
+            seekCost = (seekCost * 0.6 + (now - seekWait) / 1000.0 * 0.4).coerceIn(0.2, 6.0); seekWait = 0L
+        }
+        if (!b) { bufSince = 0L; stuck = false; return false }
+        if (bufSince == 0L) bufSince = now
+        if (now - bufSince > 1000 && !stuck) { stuck = true; stalls++ }
+        return now - bufSince > 1000
+    }
+
+    private fun mSeek(t: Double) {
+        seekWait = SystemClock.elapsedRealtime()
+        skips++
+        if (mode == Mode.BOOK) bookSeek(t) else exo.seekTo((max(0.0, t) * 1000).toLong())
+    }
     private fun mRate(r: Double) { if (abs(exo.playbackParameters.speed - r) > 0.001) exo.setPlaybackSpeed(r.toFloat()) }
 
     private fun tgSync(d: JSONObject) {
@@ -914,21 +940,24 @@ object Engine {
         val run = d.b("run")
         val target = d.d("pos") + if (run) t.rtt / 2 * base else 0.0
         val diff = mTime() - target
-        val far = if (t.role == "video") 3.0 else 1.0
+        // Small differences: play a little faster or slower. Skipping (which makes the phone load again - slow on a
+        // phone network) only for big ones, aimed ahead by how long a skip takes on this phone.
+        val far = if (t.role == "video") 4.0 else 2.5
+        val lead = min(5.0, seekCost) * base
         if (run) {
             if (!exo.playWhenReady) {
-                if (abs(diff) > 0.1) mSeek(target + 0.15 * base)
+                if (abs(diff) > 0.75) mSeek(target + lead)
                 mRate(base); exo.play(); return
             }
             when {
-                abs(diff) > far -> { mSeek(target + if (t.role == "video") 0.4 else 0.1); mRate(base) }
-                abs(diff) > 0.12 -> mRate(base * (1 - (diff * 0.2).coerceIn(-0.1, 0.1)))
+                abs(diff) > far -> { mSeek(target + lead); mRate(base) }
+                abs(diff) > 0.15 -> mRate(base * (1 - (diff * 0.15).coerceIn(-0.08, 0.08)))
                 else -> mRate(base)
             }
         } else {
             if (exo.playWhenReady) exo.pause()
             mRate(base)
-            if (abs(diff) > 0.15) mSeek(target)
+            if (abs(diff) > 0.25) mSeek(target)
         }
     }
 

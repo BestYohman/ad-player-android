@@ -10,6 +10,7 @@ import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
@@ -33,6 +34,14 @@ object PlayerHolder {
                 true
             )
             .setHandleAudioBecomingNoisy(true)
+            // keep the last minute that played, so going back a little (or evening out with the other phone)
+            // doesn't load it again over the phone network
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBackBuffer(60_000, true)
+                    .setBufferDurationsMs(30_000, 120_000, 2_000, 4_000)
+                    .build()
+            )
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
         exo.addListener(Engine.playerListener)
