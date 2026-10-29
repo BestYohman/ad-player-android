@@ -82,7 +82,14 @@ object Engine {
         if (Api.base().isEmpty()) { screen = "server"; return }
         scope.launch {
             try {
-                val m = Api.get("/api/play/me")
+                Api.active = Api.chooseAddress(!onMobileData)
+                val m = try {
+                    Api.get("/api/play/me")
+                } catch (e: ApiError) {
+                    if (e.login || !Api.atHome) throw e
+                    Api.active = ""; Api.get("/api/play/me")            // the home address didn't answer after all
+                }
+                Api.rememberServer(m)
                 if (!m.b("signed_in") || Prefs.token.isEmpty()) { me = m; screen = "signin"; return@launch }
                 me = m
                 screen = "main"
@@ -553,7 +560,42 @@ object Engine {
     fun networkBack(mobile: Boolean) {
         onMobileData = mobile
         try { Api.http.connectionPool.evictAll() } catch (e: Exception) { }
-        if (mode != Mode.NONE && exo.playerError != null && !recovering) exo.prepare()
+        recheckAddress()
+    }
+
+    private var addrJob: Job? = null
+
+    /** On the home Wi-Fi: straight to the PC; elsewhere: the web address. Playing carries on at the new address. */
+    fun recheckAddress() {
+        if (Api.base().isEmpty()) return
+        addrJob?.cancel()
+        addrJob = scope.launch {
+            val old = Api.base()
+            val pick = Api.chooseAddress(!onMobileData)
+            if (pick != old) {
+                Api.active = pick
+                moveMedia(old, pick)
+                if (screen == "server" && bootError.isNotEmpty()) boot()
+            }
+            if (mode != Mode.NONE && exo.playerError != null && !recovering) exo.prepare()
+        }
+    }
+
+    private fun moveMedia(old: String, new: String) {
+        if (mode == Mode.NONE || exo.mediaItemCount == 0) return
+        val items = (0 until exo.mediaItemCount).map { exo.getMediaItemAt(it) }
+        if (items.none { it.localConfiguration?.uri?.toString()?.startsWith(old) == true }) return
+        val idx = exo.currentMediaItemIndex
+        val pos = exo.currentPosition
+        val play = exo.playWhenReady
+        val moved = items.map { mi ->
+            val u = mi.localConfiguration?.uri?.toString() ?: ""
+            if (u.startsWith(old)) mi.buildUpon().setUri(new + u.removePrefix(old)).build() else mi
+        }
+        mediaReady = false
+        exo.setMediaItems(moved, idx, pos)
+        exo.prepare()
+        exo.playWhenReady = play
     }
 
     // ---------------------------------------------------------------- audiobooks on the phone

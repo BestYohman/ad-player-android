@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         Engine.foreground = true
+        if (Engine.screen == "main") Engine.recheckAddress()
         // connecting starts the playback service, which keeps playing with the screen off
         controller = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java))).buildAsync()
     }

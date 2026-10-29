@@ -83,12 +83,47 @@ object Api {
         .addInterceptor { chain ->
             val r = chain.request()
             val t = Prefs.token
-            val mine = base().isNotEmpty() && r.url.toString().startsWith(base())
+            val mine = known(r.url.toString())
             chain.proceed(if (t.isNotEmpty() && mine) r.newBuilder().header("X-ADP-Token", t).build() else r)
         }
         .build()
 
-    fun base(): String = normalize(Prefs.server)
+    /** The address in use now: the PC's home-network address when on the home Wi-Fi, else the one typed in. */
+    var active by mutableStateOf("")
+    fun base(): String = active.ifEmpty { normalize(Prefs.server) }
+    val atHome: Boolean get() = active.isNotEmpty() && active != normalize(Prefs.server)
+
+    fun homeUrls(): List<String> = try { JSONArray(Prefs.str("home_urls", "[]")).strs() } catch (e: Exception) { emptyList() }
+
+    private fun known(url: String): Boolean =
+        (listOf(normalize(Prefs.server)) + homeUrls()).any { it.isNotEmpty() && url.startsWith(it) }
+
+    /** Keeps what the PC says about itself: which PC it is and its home-network addresses. */
+    fun rememberServer(me: JSONObject) {
+        if (me.s("server_id").isNotEmpty()) Prefs.put("server_id", me.s("server_id"))
+        me.optJSONArray("home_urls")?.let { Prefs.put("home_urls", it.toString()) }
+    }
+
+    private val quick: OkHttpClient by lazy {
+        http.newBuilder().connectTimeout(1500, TimeUnit.MILLISECONDS).callTimeout(2500, TimeUnit.MILLISECONDS).build()
+    }
+
+    /** Which address to use: on Wi-Fi, this PC's home address if it answers (and it's the same PC); otherwise the
+     *  address typed in (the web address away from home). */
+    suspend fun chooseAddress(onWifi: Boolean): String = withContext(Dispatchers.IO) {
+        val away = normalize(Prefs.server)
+        val id = Prefs.str("server_id")
+        if (!onWifi || id.isEmpty()) return@withContext away
+        for (h in homeUrls()) {
+            if (h == away) return@withContext away
+            try {
+                quick.newCall(Request.Builder().url("$h/api/play/me").build()).execute().use { r ->
+                    if (r.isSuccessful && JSONObject(r.body?.string() ?: "{}").s("server_id") == id) return@withContext h
+                }
+            } catch (e: Exception) { }
+        }
+        away
+    }
 
     fun normalize(addr: String): String {
         var a = addr.trim().trimEnd('/')

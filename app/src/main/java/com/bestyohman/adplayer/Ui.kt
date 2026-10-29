@@ -354,6 +354,12 @@ private fun AccountSection() {
             "Signed in as ${m.s("name")}. " + if (Engine.watchUI) "On this phone you can watch the video, or just hear the audio."
             else "On this phone you hear just the audio - with audio description when there is one."
         )
+        Text(
+            if (Api.atHome) "Connected at home, straight to the PC (${Api.base().removePrefix("http://")})."
+            else "Connected through ${Api.base().removePrefix("http://").removePrefix("https://")}.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp)
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { Engine.signOut() }) { Text("Sign out") }
             OutlinedButton(onClick = { Engine.screen = "server" }) { Text("Change the PC address") }
