@@ -415,8 +415,8 @@ private fun NowPlaying(st: Engine.St) {
                 Engine.openList("books_chapters", st.bookId, st.title.ifEmpty { "Book" } + " chapters")
             }, modifier = Modifier.fillMaxWidth()) { Text("Chapters") }
             val phone = Engine.isPhone || Engine.tg != null
+            val sp = if (Engine.tg != null) Engine.tg!!.last.d("rate").let { if (it > 0) it.toFloat() else 1f } else Prefs.bookSpeed
             if (phone) {
-                val sp = if (Engine.tg != null) Engine.tg!!.last.d("rate").let { if (it > 0) it.toFloat() else 1f } else Prefs.bookSpeed
                 OutlinedButton(onClick = { speedOpen = true }, modifier = Modifier.fillMaxWidth()) { Text(if (sp == 1f) "Speed: normal" else "Speed: $sp times") }
             }
             val sl = Engine.bk?.sleep ?: "off"
