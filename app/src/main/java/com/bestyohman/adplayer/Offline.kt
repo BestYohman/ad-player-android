@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateListOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.json.JSONArray
@@ -154,7 +155,11 @@ object Offline {
             val q = find(id, kind)?.quality ?: "original"
             var d = Api.post("/api/play/download/prepare", mapOf("item" to id, "kind" to kind, "quality" to q))
             while (true) {
-                val s = find(id, kind) ?: return                    // removed meanwhile
+                val s = find(id, kind)
+                if (s == null) {                                    // stopped meanwhile: the PC stops making it too
+                    if (d.s("id").isNotEmpty()) tellStopped(d.s("id"))
+                    return
+                }
                 if (d.err().isNotEmpty() || d.s("state") == "failed") {
                     update(id, kind) { it.copy(state = "failed", error = d.err().ifEmpty { "the PC couldn't make the file" }) }
                     Engine.say("${s.title} didn't download: ${d.err().ifEmpty { "the PC couldn't make the file" }}.")
@@ -240,7 +245,7 @@ object Offline {
                 allDone -> {
                     update(s.id, s.kind) { it.copy(state = "done", progress = 100, bytes = if (total > 0) total else got) }
                     Engine.say("${s.title} is downloaded.")
-                    if (s.job.isNotEmpty()) Engine.launchSafe { Api.post("/api/play/download/done", mapOf("id" to s.job)) }
+                    if (s.job.isNotEmpty()) tellStopped(s.job, "done")     // the PC deletes its copy now
                 }
                 failed -> retry(s)
                 else -> {
@@ -279,9 +284,22 @@ object Offline {
     /** After the app starts: carry on with any the PC was still getting ready. */
     fun resume() {
         for (s in items.toList()) if (s.state == "preparing") Engine.launchSafe { prepare(s.id, s.kind) }
+        Prefs.str("stop_jobs").split(',').filter { it.isNotEmpty() }.forEach { tellStopped(it) }
+    }
+
+    /** Tells the PC this phone doesn't want its copy any more (it has it, or stopped): the PC stops converting and
+     *  deletes what it made. With no connection it's told next time the app starts (a stop does the same as done). */
+    private fun tellStopped(job: String, what: String = "cancel") {
+        Engine.scope.launch {
+            val ok = try { Api.post("/api/play/download/$what", mapOf("id" to job)).err().isEmpty() } catch (e: Exception) { false }
+            val left = Prefs.str("stop_jobs").split(',').filter { it.isNotEmpty() && it != job }
+            Prefs.put("stop_jobs", (if (ok) left else left + job).joinToString(","))   // no connection: told next time
+        }
     }
 
     fun remove(s: Saved) {
+        // still on its way (the PC making it, or the phone fetching it): the PC stops too and clears its copy
+        if (!s.done && s.kind != "book" && s.job.isNotEmpty()) tellStopped(s.job)
         try {
             if (s.kind == "book") s.partList.forEach { p -> dm.remove(p.optLong("dm", -1)) } else if (s.dm >= 0) dm.remove(s.dm)
         } catch (e: Exception) { }
