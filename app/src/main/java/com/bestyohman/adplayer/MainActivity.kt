@@ -4,6 +4,9 @@ import android.Manifest
 import android.content.ComponentName
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -20,6 +23,9 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.coroutines.launch
+
+private var netWatched = false
 
 class MainActivity : ComponentActivity() {
     private var controller: ListenableFuture<MediaController>? = null
@@ -29,6 +35,8 @@ class MainActivity : ComponentActivity() {
         Prefs.init(applicationContext)
         PlayerHolder.init(applicationContext)
         Img.init(applicationContext)
+        Downloads.init(applicationContext)
+        watchNetwork()
         Engine.announcer = { t ->
             @Suppress("DEPRECATION")
             window.decorView.announceForAccessibility(t)
@@ -52,6 +60,27 @@ class MainActivity : ComponentActivity() {
         controller?.let { MediaController.releaseFuture(it) }
         controller = null
         super.onStop()
+    }
+
+    /** Tells the player when the phone finds a network again, and whether it's mobile data (for Auto video quality). */
+    private fun watchNetwork() {
+        if (netWatched) return
+        netWatched = true
+        val cm = applicationContext.getSystemService(ConnectivityManager::class.java) ?: return
+        fun mobile(n: Network?): Boolean =
+            cm.getNetworkCapabilities(n)?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+        Engine.onMobileData = mobile(cm.activeNetwork)
+        try {
+            cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    val m = mobile(network)
+                    Engine.scope.launch { Engine.networkBack(m) }
+                }
+                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                    Engine.onMobileData = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                }
+            })
+        } catch (e: Exception) { }
     }
 
     /** Full screen video: sideways, without the phone's bars. */

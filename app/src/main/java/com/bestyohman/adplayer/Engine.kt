@@ -317,10 +317,10 @@ object Engine {
 
     class Loc(val item: String, var title: String, val tg: Boolean) {
         var ready = false; var progress = 0; var hasNext = false; var hasAd = true
-        var resumeS = 0.0; var runtime = 0.0; var job = ""; var seeking = false
+        var resumeS = 0.0; var runtime = 0.0; var job = ""; var seeking = false; var local = false
     }
     class Vid(val item: String, var title: String, val tg: Boolean) {
-        var tok = ""; var hasNext = false; var runtime = 0.0
+        var tok = ""; var hasNext = false; var runtime = 0.0; var mbps = 0.0
     }
     data class Ch(val start: Double, val end: Double, val title: String)
     data class Tr(val start: Double, val duration: Double, val url: String)
@@ -389,6 +389,7 @@ object Engine {
             }
             playUrl(d.s("url"), me.title, if (me.hasAd) "Audio description" else "Soundtrack", me.resumeS, !me.tg)
             me.ready = true
+            fetchWhole(me)
             if (!me.tg) say("Playing ${me.title} on this phone" + (if (me.resumeS > 5) " from ${fmtTime(me.resumeS)}" else "") + ".")
         }
     }
@@ -399,16 +400,160 @@ object Engine {
         val me = Vid(id, label, tgPos != null)
         vd = me; mode = Mode.VIDEO
         if (!me.tg) say("Getting the video of $label ready…")
+        stallTimes.clear()
         launchSafe {
-            val d = Api.post("/api/play/video/prepare", mapOf("item" to id))
+            val d = videoPrepare(id, videoMbps())
             if (vd !== me) return@launchSafe
             if (d.err().isNotEmpty()) { say(d.err()); vd = null; mode = Mode.NONE; return@launchSafe }
             me.tok = d.s("tok"); me.title = d.s("title").ifEmpty { label }; me.hasNext = d.b("has_next")
-            me.runtime = d.d("runtime_ticks") / 1e7
+            me.runtime = d.d("runtime_ticks") / 1e7; me.mbps = d.d("mbps")
             val pos = tgPos ?: if (resume) d.d("resume_ticks") / 1e7 else 0.0
             playUrl(d.s("url"), me.title, "", pos, !me.tg)
             if (!me.tg) say("Playing ${me.title}" + (if (pos > 5) " from ${fmtTime(pos)}" else "") + ".")
         }
+    }
+
+    // ---------------------------------------------------------------- staying up on a phone network
+    // 1. The listener's audio is downloaded whole in the background, then played from the phone itself.
+    // 2. When the connection drops (or the phone moves between Wi-Fi and mobile data) it carries on by itself.
+    // 3. Video quality: chosen, or "Auto", which steps down when the video keeps getting stuck.
+    private var wholeJob: Job? = null
+
+    private fun fetchWhole(me: Loc) {
+        wholeJob?.cancel()
+        wholeJob = scope.launch {
+            var tries = 0
+            while (loc === me && tries < 900) {
+                tries++
+                try {
+                    val j = Api.get("/api/play/listen/job/${me.job}")
+                    if (j.s("state") == "failed") return@launch
+                    val url = j.s("full_url")
+                    if (url.isNotEmpty()) {
+                        val f = Downloads.get(Api.url(url), "${me.job}.m4a")
+                        if (f != null && loc === me) { switchToLocal(me, f); return@launch }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) { }
+                delay(if (tries < 30) 4000L else 15000L)
+            }
+        }
+    }
+
+    private fun switchToLocal(me: Loc, f: java.io.File) {
+        if (me.local || mode != Mode.AUDIO) return
+        val pos = exo.currentPosition
+        val play = exo.playWhenReady
+        me.local = true
+        mediaReady = false
+        val mi = MediaItem.Builder().setUri(Uri.fromFile(f))
+            .setMediaMetadata(MediaMetadata.Builder().setTitle(me.title).setArtist(if (me.hasAd) "Audio description" else "Soundtrack").build())
+            .build()
+        exo.setMediaItem(mi, pos)
+        exo.prepare()
+        exo.playWhenReady = play
+    }
+
+    val qualities = listOf("auto" to "Auto", "8" to "High (8)", "6" to "Good (6)", "4" to "Medium (4)", "2.5" to "Low (2.5)", "1.5" to "Very low (1.5)", "1" to "Lowest (1)")
+    private val autoSteps = listOf(6.0, 4.0, 2.5, 1.5, 1.0)
+    var quality by mutableStateOf(Prefs.str("quality", "auto"))
+    var onMobileData = false
+    private val stallTimes = mutableListOf<Long>()
+    private var stallSince = 0L
+    private var lastSeekAt = 0L
+
+    private fun autoKey() = if (onMobileData) "auto_mobile" else "auto_wifi"
+
+    /** Megabits a second to ask for (0 = the PC's own setting). */
+    fun videoMbps(): Double =
+        if (quality != "auto") quality.toDoubleOrNull() ?: 0.0 else Prefs.str(autoKey()).toDoubleOrNull() ?: 0.0
+
+    private suspend fun videoPrepare(id: String, mbps: Double): JSONObject {
+        val f = mutableMapOf("item" to id)
+        if (mbps > 0) f["mbps"] = mbps.toString()
+        return Api.post("/api/play/video/prepare", f)
+    }
+
+    fun qualityLabel(): String {
+        val q = qualities.firstOrNull { it.first == quality }?.second ?: "Auto"
+        val now = vd?.mbps ?: 0.0
+        return if (quality == "auto" && now > 0) "$q (now ${if (now % 1.0 == 0.0) now.toInt().toString() else now.toString()})" else q
+    }
+
+    fun setQuality(q: String) {
+        quality = q
+        Prefs.put("quality", q)
+        if (q == "auto") Prefs.put(autoKey(), "")
+        say("Video quality: " + (qualities.firstOrNull { it.first == q }?.second ?: q) + ".")
+        reloadVideo(videoMbps())
+    }
+
+    /** The same video again from where it is, at another quality (or after the connection was lost). */
+    private fun reloadVideo(mbps: Double) {
+        val v = vd ?: return
+        if (mode != Mode.VIDEO) return
+        val pos = exo.currentPosition / 1000.0
+        val play = exo.playWhenReady
+        launchSafe {
+            val d = videoPrepare(v.item, mbps)
+            if (vd !== v) return@launchSafe
+            if (d.err().isNotEmpty()) { say(d.err()); return@launchSafe }
+            v.tok = d.s("tok"); v.mbps = d.d("mbps")
+            stallTimes.clear(); stallSince = 0L
+            playUrl(d.s("url"), v.title, "", pos, play)
+        }
+    }
+
+    private fun stepDown() {
+        val v = vd ?: return
+        val cur = if (v.mbps > 0) v.mbps else 6.0
+        val next = autoSteps.firstOrNull { it < cur - 0.01 } ?: return
+        Prefs.put(autoKey(), next.toString())
+        say("The connection is slow - switching to lower video quality.")
+        reloadVideo(next)
+    }
+
+    private fun watchStalls() {
+        if (mode != Mode.VIDEO || quality != "auto" || !mediaReady) { stallSince = 0L; return }
+        val now = System.currentTimeMillis()
+        val stuck = exo.playWhenReady && exo.playbackState == Player.STATE_BUFFERING && now - lastSeekAt > 4000
+        if (!stuck) { stallSince = 0L; return }
+        if (stallSince == 0L) { stallSince = now; stallTimes.add(now) }
+        stallTimes.removeAll { now - it > 90_000 }
+        if (now - stallSince > 8000 || stallTimes.size >= 3) { stallSince = 0L; stallTimes.clear(); stepDown() }
+    }
+
+    private var recoverTries = 0
+    private var recovering = false
+
+    /** Something went wrong loading (the connection dropped): try again by itself, from the same place. */
+    private fun recover(error: PlaybackException) {
+        if (mode == Mode.NONE || recovering) return
+        val net = error.errorCode in 2000..2999 || error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW
+        if (!net && recoverTries >= 2) {
+            say("The phone couldn't play it: ${error.errorCodeName.removePrefix("ERROR_CODE_").replace('_', ' ').lowercase()}.")
+            return
+        }
+        recoverTries++
+        if (recoverTries > 60) { say("Couldn't get the connection back. Press Play to try again."); return }
+        if (recoverTries == 1) say("The connection dropped - carrying on as soon as it's back.")
+        recovering = true
+        scope.launch {
+            delay(min(10_000L, 1000L * recoverTries))
+            recovering = false
+            if (mode == Mode.NONE || exo.playerError == null) return@launch
+            val gone = (error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode in listOf(401, 403, 404, 410)
+            if (mode == Mode.VIDEO && gone) reloadVideo(vd?.mbps ?: videoMbps())
+            else { exo.prepare() }
+        }
+    }
+
+    /** The phone found a network again: don't wait for the next try. */
+    fun networkBack(mobile: Boolean) {
+        onMobileData = mobile
+        try { Api.http.connectionPool.evictAll() } catch (e: Exception) { }
+        if (mode != Mode.NONE && exo.playerError != null && !recovering) exo.prepare()
     }
 
     // ---------------------------------------------------------------- audiobooks on the phone
@@ -558,8 +703,10 @@ object Engine {
         if (mode != Mode.NONE) savePlace()
         val v = vd
         if (v != null && v.tok.isNotEmpty()) scope.launch { try { Api.post("/api/play/video/stop", mapOf("tok" to v.tok)) } catch (e: Exception) { } }
+        wholeJob?.cancel()
         loc = null; vd = null; bk = null
         mode = Mode.NONE
+        recoverTries = 0
         mediaReady = false
         fullscreen = false
         try { exo.stop(); exo.clearMediaItems() } catch (e: Exception) { }
@@ -592,7 +739,10 @@ object Engine {
 
     val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
-            if (state == Player.STATE_READY) mediaReady = true
+            if (state == Player.STATE_READY) {
+                if (recoverTries > 0 && mediaReady) say("Back again.")
+                mediaReady = true; recoverTries = 0
+            }
             if (state == Player.STATE_ENDED) onEnded()
             tick++
         }
@@ -601,13 +751,17 @@ object Engine {
             tick++
         }
         override fun onPlayerError(error: PlaybackException) {
-            say("The phone couldn't play it: ${error.errorCodeName.removePrefix("ERROR_CODE_").replace('_', ' ').lowercase()}.")
+            recover(error)
             tick++
+        }
+        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            if (reason == Player.DISCONTINUITY_REASON_SEEK) lastSeekAt = System.currentTimeMillis()
         }
     }
 
     private fun everySecond() {
         tick++
+        watchStalls()
         if (mode != Mode.NONE && exo.isPlaying && System.currentTimeMillis() - lastSave > 30_000) savePlace()
         val b = bk
         if (b != null && b.ready && (b.sleepAt > 0 || b.sleepPos >= 0)) {
@@ -641,7 +795,8 @@ object Engine {
         when (c) {
             "volup", "voldown" -> say("Use the phone's volume buttons.")
             "stop" -> stopPhone(false)
-            "playpause" -> if (exo.playWhenReady) { exo.pause(); say("Paused.") } else { exo.play(); say("Playing.") }
+            "playpause" -> if (exo.playerError != null) { recoverTries = 0; exo.prepare(); exo.play(); say("Trying again.") }
+                else if (exo.playWhenReady) { exo.pause(); say("Paused.") } else { exo.play(); say("Playing.") }
             "pause" -> { exo.pause(); say("Paused.") }
             "unpause", "play" -> { exo.play(); say("Playing.") }
             "back30" -> seekRel(-30.0)

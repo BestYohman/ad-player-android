@@ -305,6 +305,7 @@ private fun WhereSection() {
                 else OutlinedButton(onClick = { Engine.pickWhat(k) }, modifier = m, contentPadding = PaddingValues(4.dp)) { Text(l, maxLines = 1) }
             }
         }
+        if (Engine.dev == "__video") QualityButton()
         if (Engine.isPhone) {
             val t = "Play together: " + if (Engine.together) "on" else "off"
             if (Engine.together) Button(onClick = { Engine.toggleTogether() }, modifier = Modifier.padding(top = 8.dp)) { Text(t) }
@@ -381,6 +382,13 @@ fun VideoView(modifier: Modifier) {
 }
 
 @Composable
+private fun QualityButton() {
+    var open by remember { mutableStateOf(false) }
+    OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) { Text("Video quality: " + Engine.qualityLabel()) }
+    if (open) ChoiceDialog("Video quality (megabits a second)", Engine.qualities, Engine.quality, { Engine.setQuality(it) }, { open = false })
+}
+
+@Composable
 private fun NowPlaying(st: Engine.St) {
     var speedOpen by remember { mutableStateOf(false) }
     var sleepOpen by remember { mutableStateOf(false) }
@@ -431,7 +439,10 @@ private fun NowPlaying(st: Engine.St) {
                 listOf("off" to "Off", "15" to "15 minutes", "30" to "30 minutes", "45" to "45 minutes", "60" to "1 hour", "chapter" to "End of this chapter"),
                 sl, { Engine.setSleep(it) }, { sleepOpen = false })
         }
-        if (st.video && Engine.vd != null) OutlinedButton(onClick = { Engine.fullscreen = true }, modifier = Modifier.fillMaxWidth()) { Text("Full screen") }
+        if (st.video && Engine.vd != null) {
+            OutlinedButton(onClick = { Engine.fullscreen = true }, modifier = Modifier.fillMaxWidth()) { Text("Full screen") }
+            QualityButton()
+        }
         OutlinedButton(onClick = { Engine.browse = true }, modifier = Modifier.fillMaxWidth()) { Text("Find something else") }
     }
 }

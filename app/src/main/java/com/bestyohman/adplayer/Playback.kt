@@ -10,7 +10,10 @@ import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
@@ -26,7 +29,9 @@ object PlayerHolder {
         if (::exo.isInitialized) return
         val app = ctx.applicationContext
         exo = ExoPlayer.Builder(app)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(OkHttpDataSource.Factory(Api.http)))
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(OkHttpDataSource.Factory(Api.http)).setLoadErrorHandlingPolicy(PatientPolicy())
+            )
             .setSeekBackIncrementMs(30_000)
             .setSeekForwardIncrementMs(30_000)
             .setAudioAttributes(
@@ -36,16 +41,32 @@ object PlayerHolder {
             .setHandleAudioBecomingNoisy(true)
             // keep the last minute that played, so going back a little (or evening out with the other phone)
             // doesn't load it again over the phone network
+            // load well ahead (up to 10 minutes; video is held to about 64 MB), so a weak spot or a
+            // switch between Wi-Fi and mobile data doesn't stop it
             .setLoadControl(
                 DefaultLoadControl.Builder()
                     .setBackBuffer(60_000, true)
-                    .setBufferDurationsMs(30_000, 120_000, 2_000, 4_000)
+                    .setBufferDurationsMs(60_000, 600_000, 2_000, 5_000)
+                    .setTargetBufferBytes(64 * 1024 * 1024)
+                    .setPrioritizeTimeOverSizeThresholds(false)
                     .build()
             )
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
         exo.addListener(Engine.playerListener)
         session = SessionPlayer(exo)
+    }
+}
+
+/** When the connection drops, keep trying (every few seconds) instead of giving up; the phone carries on when it's back.
+ *  Only "this isn't there any more" answers from the PC stop it (the app then asks the PC again). */
+@OptIn(UnstableApi::class)
+class PatientPolicy : DefaultLoadErrorHandlingPolicy(Int.MAX_VALUE) {
+    override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
+        val e = loadErrorInfo.exception
+        if (e is HttpDataSource.InvalidResponseCodeException && e.responseCode in listOf(401, 403, 404, 410)) return C.TIME_UNSET
+        if (super.getRetryDelayMsFor(loadErrorInfo) == C.TIME_UNSET) return C.TIME_UNSET
+        return minOf(1000L * loadErrorInfo.errorCount, 5000L)
     }
 }
 
