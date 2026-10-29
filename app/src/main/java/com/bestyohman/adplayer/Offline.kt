@@ -40,20 +40,22 @@ object Offline {
         val parts: String = "[]",       // books: [{start, duration, url, file, dm}]
         val pos: Double = 0.0,          // where it was left, kept on the phone too
         val error: String = "",
-        val retries: Int = 0
+        val retries: Int = 0,
+        val quality: String = "original" // video: original, medium or small
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("id", id); put("kind", kind); put("title", title); put("state", state); put("progress", progress)
             put("bytes", bytes); put("runtime", runtime); put("itemType", itemType); put("hasNext", hasNext); put("job", job)
             put("url", url); put("file", file); put("dm", dm); put("author", author); put("duration", duration)
-            put("chapters", chapters); put("parts", parts); put("pos", pos); put("error", error); put("retries", retries)
+            put("chapters", chapters); put("parts", parts); put("pos", pos); put("error", error); put("retries", retries); put("quality", quality)
         }
 
         companion object {
             fun from(j: JSONObject) = Saved(
                 j.s("id"), j.s("kind"), j.s("title"), j.s("state"), j.i("progress"), j.optLong("bytes"), j.d("runtime"),
                 j.s("itemType"), j.b("hasNext"), j.s("job"), j.s("url"), j.s("file"), j.optLong("dm", -1), j.s("author"),
-                j.d("duration"), j.s("chapters").ifEmpty { "[]" }, j.s("parts").ifEmpty { "[]" }, j.d("pos"), j.s("error"), j.i("retries")
+                j.d("duration"), j.s("chapters").ifEmpty { "[]" }, j.s("parts").ifEmpty { "[]" }, j.d("pos"), j.s("error"), j.i("retries"),
+                j.s("quality").ifEmpty { "original" }
             )
         }
 
@@ -68,7 +70,11 @@ object Offline {
             else -> "Didn't download" + if (error.isNotEmpty()) ": $error" else ""
         }
 
-        fun kindText(): String = when (kind) { "video" -> "Video"; "audio" -> "Audio description"; else -> "Audiobook" }
+        fun kindText(): String = when (kind) {
+            "video" -> "Video" + when (quality) { "medium" -> ", medium quality"; "small" -> ", small"; else -> "" }
+            "audio" -> "Audio description"
+            else -> "Audiobook"
+        }
     }
 
     val items = mutableStateListOf<Saved>()
@@ -133,18 +139,20 @@ object Offline {
 
     // ---------------------------------------------------------------- starting a download
 
-    /** kind: "video" (the video with its soundtrack) or "audio" (just the audio description). */
-    fun download(it: Item, kind: String) {
+    /** kind: "video" (the video with its soundtrack) or "audio" (just the audio description).
+     *  quality (video): original, medium (about 3 Mbps) or small (about 1.5 Mbps). */
+    fun download(it: Item, kind: String, quality: String = "original") {
         val have = find(it.id, kind)
         if (have != null && have.state != "failed") { Engine.say("${it.label} is already ${if (have.done) "downloaded" else "downloading"}."); return }
-        put(Saved(it.id, kind, it.label, itemType = it.type, hasNext = it.type == "Episode"))
+        put(Saved(it.id, kind, it.label, itemType = it.type, hasNext = it.type == "Episode", quality = quality))
         Engine.say("Getting ${it.label} ready to download. It carries on by itself - see Downloads.")
         Engine.launchSafe { prepare(it.id, kind) }
     }
 
     private suspend fun prepare(id: String, kind: String) {
         try {
-            var d = Api.post("/api/play/download/prepare", mapOf("item" to id, "kind" to kind))
+            val q = find(id, kind)?.quality ?: "original"
+            var d = Api.post("/api/play/download/prepare", mapOf("item" to id, "kind" to kind, "quality" to q))
             while (true) {
                 val s = find(id, kind) ?: return                    // removed meanwhile
                 if (d.err().isNotEmpty() || d.s("state") == "failed") {

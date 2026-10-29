@@ -557,8 +557,13 @@ private fun DownloadButton(item: Item) {
     ) { Text(label) }
     if (ask) ChoiceDialog(
         "Download ${item.label}",
-        listOf("video" to "The video", "audio" to "Just the audio description (small - also for the car)"),
-        "", { Offline.download(item, it) }, { ask = false }
+        listOf(
+            "video:original" to "The video - original quality (biggest)",
+            "video:medium" to "The video - medium quality (about 1.4 GB an hour)",
+            "video:small" to "The video - small (about 0.7 GB an hour)",
+            "audio:original" to "Just the audio description (about 70 MB an hour - also for the car)"
+        ),
+        "", { Offline.download(item, it.substringBefore(':'), it.substringAfter(':')) }, { ask = false }
     )
 }
 
