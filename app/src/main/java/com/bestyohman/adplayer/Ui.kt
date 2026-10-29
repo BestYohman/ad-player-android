@@ -385,7 +385,7 @@ fun VideoView(modifier: Modifier) {
 private fun QualityButton() {
     var open by remember { mutableStateOf(false) }
     OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) { Text("Video quality: " + Engine.qualityLabel()) }
-    if (open) ChoiceDialog("Video quality (megabits a second)", Engine.qualities, Engine.quality, { Engine.setQuality(it) }, { open = false })
+    if (open) ChoiceDialog("Video quality (megabits a second)", Engine.qualities, Engine.quality, { Engine.chooseQuality(it) }, { open = false })
 }
 
 @Composable

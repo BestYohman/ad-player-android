@@ -481,7 +481,7 @@ object Engine {
         return if (quality == "auto" && now > 0) "$q (now ${if (now % 1.0 == 0.0) now.toInt().toString() else now.toString()})" else q
     }
 
-    fun setQuality(q: String) {
+    fun chooseQuality(q: String) {
         quality = q
         Prefs.put("quality", q)
         if (q == "auto") Prefs.put(autoKey(), "")
