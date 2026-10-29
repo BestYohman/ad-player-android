@@ -16,18 +16,21 @@ import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.common.MediaItem
+import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
 
 /** The one player for everything this phone plays (AD audio, video, audiobooks). */
 object PlayerHolder {
     lateinit var exo: ExoPlayer
     lateinit var session: Player          // what the lock screen, headset and the video's own controls talk to
+    lateinit var app: Context
 
     @OptIn(UnstableApi::class)
     fun init(ctx: Context) {
         if (::exo.isInitialized) return
-        val app = ctx.applicationContext
+        app = ctx.applicationContext
         exo = ExoPlayer.Builder(app)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(OkHttpDataSource.Factory(Api.http)).setLoadErrorHandlingPolicy(PatientPolicy())
@@ -86,6 +89,17 @@ class SessionPlayer(p: Player) : ForwardingPlayer(p) {
     override fun seekTo(positionMs: Long) { if (!Engine.onSeek(currentMediaItemIndex, positionMs)) super.seekTo(positionMs) }
     override fun seekTo(mediaItemIndex: Int, positionMs: Long) { if (!Engine.onSeek(mediaItemIndex, positionMs)) super.seekTo(mediaItemIndex, positionMs) }
 
+    // the car already started it (see CarLibrary): don't load it a second time
+    override fun setMediaItems(mediaItems: MutableList<MediaItem>, startIndex: Int, startPositionMs: Long) {
+        if (!Engine.takeAdopt()) super.setMediaItems(mediaItems, startIndex, startPositionMs)
+    }
+    override fun setMediaItems(mediaItems: MutableList<MediaItem>, resetPosition: Boolean) {
+        if (!Engine.takeAdopt()) super.setMediaItems(mediaItems, resetPosition)
+    }
+    override fun setMediaItems(mediaItems: MutableList<MediaItem>) {
+        if (!Engine.takeAdopt()) super.setMediaItems(mediaItems)
+    }
+
     override fun getAvailableCommands(): Player.Commands =
         super.getAvailableCommands().buildUpon()
             .add(Player.COMMAND_SEEK_BACK).add(Player.COMMAND_SEEK_FORWARD)
@@ -98,22 +112,25 @@ class SessionPlayer(p: Player) : ForwardingPlayer(p) {
             super.isCommandAvailable(command)
 }
 
-/** Keeps playing with the screen off, with the lock-screen and notification controls. */
-class PlaybackService : MediaSessionService() {
-    private var mediaSession: MediaSession? = null
+/** Keeps playing with the screen off, with the lock-screen and notification controls - and is what Android Auto uses. */
+@OptIn(UnstableApi::class)
+class PlaybackService : MediaLibraryService() {
+    private var mediaSession: MediaLibrarySession? = null
 
     override fun onCreate() {
         super.onCreate()
         Prefs.init(this)
         PlayerHolder.init(this)
+        Offline.init(this)
+        Downloads.init(this)
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        mediaSession = MediaSession.Builder(this, PlayerHolder.session).setSessionActivity(open).build()
+        mediaSession = MediaLibrarySession.Builder(this, PlayerHolder.session, CarLibrary()).setSessionActivity(open).build()
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = mediaSession
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val p = mediaSession?.player

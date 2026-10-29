@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity() {
         PlayerHolder.init(applicationContext)
         Img.init(applicationContext)
         Downloads.init(applicationContext)
+        Offline.init(applicationContext)
         watchNetwork()
         Engine.announcer = { t ->
             @Suppress("DEPRECATION")
@@ -46,6 +47,12 @@ class MainActivity : ComponentActivity() {
         ) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         setContent { AppTheme { AppRoot(this) } }
         if (Engine.screen == "boot" || Engine.me == null) Engine.boot()
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        // a "play together" notification (adplayer://join): show the Join button straight away
+        if (intent.data?.scheme == "adplayer") Engine.scope.launch { try { Engine.pollInvites() } catch (e: Exception) { } }
     }
 
     override fun onStart() {

@@ -41,6 +41,7 @@ object Engine {
     var announcer: ((String) -> Unit)? = null
     var foreground = false
     var tick by mutableStateOf(0)                 // changes every second, so "Now playing" stays up to date
+    var offline by mutableStateOf(false)           // couldn't reach the PC: only what's downloaded
 
     fun say(t: String) {
         if (t.isEmpty()) return
@@ -92,12 +93,23 @@ object Engine {
                 Api.rememberServer(m)
                 if (!m.b("signed_in") || Prefs.token.isEmpty()) { me = m; screen = "signin"; return@launch }
                 me = m
+                Prefs.put("me", m.toString())
+                offline = false
                 screen = "main"
+                Offline.resume()
                 loadDevices(false)
                 if (stack.isEmpty()) openList(if (what == "books") "books_continue" else "continue_$what", quiet = true)
                 pollInvites()
             } catch (e: ApiError) {
-                if (e.login) { screen = "signin" } else { bootError = e.message ?: ""; screen = "server" }
+                if (e.login) { screen = "signin" }
+                else if (Prefs.token.isNotEmpty() && Offline.items.any { it.done }) {
+                    // no connection to the PC: what's downloaded still plays
+                    me = try { JSONObject(Prefs.str("me", "{}")) } catch (x: Exception) { JSONObject() }
+                    offline = true
+                    screen = "main"
+                    openList("downloads", title = "Downloads", quiet = true)
+                    say("Can't reach the PC - here is what's downloaded.")
+                } else { bootError = e.message ?: ""; screen = "server" }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -234,6 +246,7 @@ object Engine {
         items = null
         listError = ""
         if (v.kind == "detail") { items = emptyList(); loadSeasons(v, gen); return }
+        if (v.kind == "downloads") { items = emptyList(); return }
         scope.launch {
             try {
                 val url = if (v.kind.startsWith("books_"))
@@ -346,8 +359,8 @@ object Engine {
         if (isPhone && together) { tgStartVideo(it, resume); return }
         if (tg != null) tgLeave(true)
         when (dev) {
-            "__video" -> videoStart(it.id, it.label, resume)
-            "__local" -> listenStart(it.id, it.label, resume)
+            "__video" -> videoStart(it.id, it.label, resume, hint = it.resumeTicks / 1e7)
+            "__local" -> listenStart(it.id, it.label, resume, hint = it.resumeTicks / 1e7)
             "" -> say("Choose where to play it first.")
             else -> tvStart(it, resume)
         }
@@ -367,10 +380,19 @@ object Engine {
     }
 
     /** Just the audio (the AD track, or the soundtrack when playing together and there's no AD). */
-    fun listenStart(id: String, label: String, resume: Boolean, tgPos: Double? = null) {
+    fun listenStart(id: String, label: String, resume: Boolean, tgPos: Double? = null, hint: Double = -1.0) {
         stopPhone(true)
         val me = Loc(id, label, tgPos != null)
         loc = me; mode = Mode.AUDIO
+        val off = Offline.done(id, "audio")
+        if (off != null) {                                  // downloaded: play it from the phone
+            me.title = off.title; me.hasNext = off.hasNext; me.runtime = off.runtime; me.local = true
+            me.resumeS = tgPos ?: if (resume) (if (hint > 0) hint else off.pos) else 0.0
+            playUrl(Uri.fromFile(java.io.File(off.file)).toString(), me.title, "Audio description", me.resumeS, !me.tg)
+            me.ready = true
+            if (!me.tg) say("Playing ${me.title} from the download" + (if (me.resumeS > 5) " from ${fmtTime(me.resumeS)}" else "") + ".")
+            return
+        }
         if (!me.tg) say("Getting the audio of $label ready…")
         launchSafe {
             var d = Api.post("/api/play/listen/prepare", mapOf("item" to id, "fmt" to "hls", "any" to if (me.tg) "1" else "0"))
@@ -402,10 +424,18 @@ object Engine {
     }
 
     /** The video (Emby's stream through the PC), with the normal soundtrack. */
-    fun videoStart(id: String, label: String, resume: Boolean, tgPos: Double? = null) {
+    fun videoStart(id: String, label: String, resume: Boolean, tgPos: Double? = null, hint: Double = -1.0) {
         stopPhone(true)
         val me = Vid(id, label, tgPos != null)
         vd = me; mode = Mode.VIDEO
+        val off = Offline.done(id, "video")
+        if (off != null) {                                  // downloaded: play it from the phone
+            me.title = off.title; me.hasNext = off.hasNext; me.runtime = off.runtime
+            val pos = tgPos ?: if (resume) (if (hint > 0) hint else off.pos) else 0.0
+            playUrl(Uri.fromFile(java.io.File(off.file)).toString(), me.title, "", pos, !me.tg)
+            if (!me.tg) say("Playing ${me.title} from the download" + (if (pos > 5) " from ${fmtTime(pos)}" else "") + ".")
+            return
+        }
         if (!me.tg) say("Getting the video of $label ready…")
         stallTimes.clear()
         launchSafe {
@@ -598,6 +628,44 @@ object Engine {
         exo.playWhenReady = play
     }
 
+    /** Plays something from Downloads on this phone. */
+    fun playDownload(s: Offline.Saved) {
+        browse = false
+        if (tg != null) tgLeave(true)
+        when (s.kind) {
+            "video" -> videoStart(s.id, s.title, true)
+            "audio" -> listenStart(s.id, s.title, true)
+            else -> bookStartPhone(s.id, s.title, true, null)
+        }
+    }
+
+    // ---------------------------------------------------------------- from the car (Android Auto)
+    private var adoptAt = 0L
+    fun adoptNext() { adoptAt = SystemClock.elapsedRealtime() }
+    /** True once, just after the car started something: the car's own "load it" is then skipped. */
+    fun takeAdopt(): Boolean {
+        val yes = adoptAt > 0 && SystemClock.elapsedRealtime() - adoptAt < 5000
+        if (yes) adoptAt = 0L
+        return yes
+    }
+
+    /** Starts "ad:<item>" (just the audio description) or "book:<id>"; true once it's playing. */
+    suspend fun playForCar(mediaId: String, title: String): Boolean {
+        if (tg != null) tgLeave(true)
+        val id = mediaId.substringAfter(':')
+        when {
+            mediaId.startsWith("ad:") -> listenStart(id, title, true)
+            mediaId.startsWith("book:") -> bookStartPhone(id, title, true, null)
+            else -> return false
+        }
+        for (i in 0 until 240) {                  // up to 2 minutes for the PC to get the audio ready
+            delay(500)
+            if (mode == Mode.NONE) return false
+            if (exo.mediaItemCount > 0 && (loc?.ready == true || bk?.ready == true)) return true
+        }
+        return false
+    }
+
     // ---------------------------------------------------------------- audiobooks on the phone
     fun bookPlay(it: Item, resume: Boolean, at: Double?) {
         browse = false
@@ -636,16 +704,32 @@ object Engine {
         bk = me; mode = Mode.BOOK
         if (!noplay) say("Getting $label ready…")
         launchSafe {
-            val b = Api.get("/api/play/books/book?id=${enc(id)}")
+            val off = Offline.done(id, "book")
+            val b = try {
+                Api.get("/api/play/books/book?id=${enc(id)}")
+            } catch (e: ApiError) {
+                if (off == null || e.login) throw e
+                null                                       // no connection: the download, from where it was left on the phone
+            }
             if (bk !== me) return@launchSafe
-            if (b.err().isNotEmpty()) { say(b.err()); bk = null; mode = Mode.NONE; return@launchSafe }
-            me.title = b.s("title"); me.author = b.s("author"); me.duration = b.d("duration")
-            me.chapters = b.optJSONArray("chapters").objs().map { Ch(it.d("start"), it.d("end"), it.s("title")) }
-            me.tracks = b.optJSONArray("tracks").objs().map { Tr(it.d("start"), it.d("duration"), it.s("url")) }
+            if (b != null && b.err().isNotEmpty() && off == null) { say(b.err()); bk = null; mode = Mode.NONE; return@launchSafe }
+            val art: Uri
+            if (off != null) {
+                me.title = off.title; me.author = off.author; me.duration = off.duration
+                me.chapters = (try { org.json.JSONArray(off.chapters) } catch (e: Exception) { null }).objs()
+                    .map { Ch(it.d("start"), it.d("end"), it.s("title")) }
+                me.tracks = off.partList.map { Tr(it.d("start"), it.d("duration"), Uri.fromFile(java.io.File(it.s("file"))).toString()) }
+                art = Uri.fromFile(java.io.File(off.file, "cover.jpg"))
+            } else {
+                me.title = b!!.s("title"); me.author = b.s("author"); me.duration = b.d("duration")
+                me.chapters = b.optJSONArray("chapters").objs().map { Ch(it.d("start"), it.d("end"), it.s("title")) }
+                me.tracks = b.optJSONArray("tracks").objs().map { Tr(it.d("start"), it.d("duration"), it.s("url")) }
+                art = Uri.parse(Api.url(b.s("cover")))
+            }
             if (me.tracks.isEmpty()) { say("That book has no audio."); bk = null; mode = Mode.NONE; return@launchSafe }
-            var pos = at ?: if (resume && !b.b("finished")) max(0.0, b.d("position") - 2) else 0.0
+            val serverPos = if (b != null && b.err().isEmpty()) (if (b.b("finished")) 0.0 else b.d("position")) else (off?.pos ?: 0.0)
+            var pos = at ?: if (resume) max(0.0, serverPos - 2) else 0.0
             if (pos >= me.duration - 2) pos = 0.0
-            val art = Uri.parse(Api.url(b.s("cover")))
             val list = me.tracks.mapIndexed { i, t ->
                 MediaItem.Builder().setUri(Api.url(t.url)).setMediaId("part$i")
                     .setMediaMetadata(MediaMetadata.Builder().setTitle(me.title).setArtist(me.author).setArtworkUri(art).build())
@@ -738,6 +822,7 @@ object Engine {
             }
             else -> return
         }
+        form["item"]?.let { Offline.notePos(it, form["pos"]?.toDoubleOrNull() ?: 0.0) }
         scope.launch { try { Api.post(path, form) } catch (e: Exception) { } }
     }
 
@@ -804,6 +889,7 @@ object Engine {
     private fun everySecond() {
         tick++
         watchStalls()
+        if (tick % 3 == 0 && Offline.items.any { it.state == "downloading" }) Offline.poll()
         if (mode != Mode.NONE && exo.isPlaying && System.currentTimeMillis() - lastSave > 30_000) savePlace()
         val b = bk
         if (b != null && b.ready && (b.sleepAt > 0 || b.sleepPos >= 0)) {
@@ -1135,7 +1221,8 @@ object Engine {
         val t = tg ?: return
         val base = d.d("rate").let { if (it > 0) it else 1.0 }
         val run = d.b("run")
-        val target = d.d("pos") + if (run) t.rtt / 2 * base else 0.0
+        // a little ahead by how late this phone's sound reaches the ears (Bluetooth headphones), so both hear it together
+        val target = d.d("pos") + (if (run) t.rtt / 2 * base else 0.0) + outputDelay() * base
         val diff = mTime() - target
         // Small differences: play a little faster or slower. Skipping (which makes the phone load again - slow on a
         // phone network) only for big ones, aimed ahead by how long a skip takes on this phone.
@@ -1156,6 +1243,36 @@ object Engine {
             mRate(base)
             if (abs(diff) > 0.25) mSeek(target)
         }
+    }
+
+    // ---------------------------------------------------------------- headphone delay
+    val delays = listOf("auto" to "Auto (Bluetooth: 0.2 seconds)", "0" to "None", "0.1" to "0.1 seconds", "0.2" to "0.2 seconds",
+        "0.3" to "0.3 seconds", "0.4" to "0.4 seconds", "0.5" to "0.5 seconds")
+    var headphoneDelay by mutableStateOf(Prefs.str("hp_delay", "auto"))
+    private var btAt = 0L
+    private var btOn = false
+
+    fun chooseDelay(v: String) {
+        headphoneDelay = v; Prefs.put("hp_delay", v)
+        say("Headphone delay: " + (delays.firstOrNull { it.first == v }?.second ?: v) + ".")
+    }
+
+    /** Seconds this phone's sound is late (Bluetooth headphones are about 0.2 s behind). */
+    fun outputDelay(): Double {
+        headphoneDelay.toDoubleOrNull()?.let { return it }
+        val now = SystemClock.elapsedRealtime()
+        if (now - btAt > 5000) {
+            btAt = now
+            btOn = try {
+                val am = PlayerHolder.app.getSystemService(android.media.AudioManager::class.java)
+                am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).any {
+                    it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                        (android.os.Build.VERSION.SDK_INT >= 31 && (it.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                            it.type == android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER))
+                }
+            } catch (e: Exception) { false }
+        }
+        return if (btOn) 0.2 else 0.0
     }
 
     fun tgControl(action: String, extra: Map<String, String> = emptyMap(), okText: String? = null) {

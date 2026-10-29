@@ -220,6 +220,10 @@ fun MainScreen(act: MainActivity) {
                 Column {
                     Heading("AD Player", true)
                     Said()
+                    if (Engine.offline) {
+                        Text("Can't reach the PC - what's downloaded still plays.", color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = { Engine.boot() }) { Text("Try the PC again") }
+                    }
                 }
             }
             if (Engine.invites.isNotEmpty() && Engine.tg == null) full { Invites() }
@@ -312,6 +316,7 @@ private fun WhereSection() {
             else OutlinedButton(onClick = { Engine.toggleTogether() }, modifier = Modifier.padding(top = 8.dp)) { Text(t) }
             Text("When on, what you start here also plays on another person's phone, in step. They get a Join button.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (Engine.together) DelayButton()
         }
     }
 }
@@ -341,6 +346,7 @@ private fun FindSection() {
         )
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             btns.forEach { (label, kind) -> OutlinedButton(onClick = { Engine.openList(kind) }) { Text(label) } }
+            OutlinedButton(onClick = { Engine.openList("downloads", title = "Downloads") }) { Text("Downloads") }
         }
     }
 }
@@ -385,6 +391,14 @@ fun VideoView(modifier: Modifier) {
         onRelease = { pv -> pv.player = null },
         modifier = modifier.background(Color.Black)
     )
+}
+
+@Composable
+private fun DelayButton() {
+    var open by remember { mutableStateOf(false) }
+    val cur = Engine.delays.firstOrNull { it.first == Engine.headphoneDelay }?.second ?: Engine.headphoneDelay
+    OutlinedButton(onClick = { open = true }, modifier = Modifier.padding(top = 4.dp)) { Text("Headphone delay: $cur") }
+    if (open) ChoiceDialog("Headphone delay (playing together)", Engine.delays, Engine.headphoneDelay, { Engine.chooseDelay(it) }, { open = false })
 }
 
 @Composable
@@ -471,6 +485,7 @@ private fun LazyGridScope.listSection(landSpan: Int) {
         }
     }
     if (v.kind == "detail") { detail(v); return }
+    if (v.kind == "downloads") { downloads(); return }
     if (list == null) { full { Text("Loading…") }; return }
     if (Engine.listError.isNotEmpty()) { full { Text(Engine.listError) }; return }
     if (list.isEmpty()) { full { Text(noneText(v.kind)) }; return }
@@ -489,6 +504,62 @@ private fun LazyGridScope.listSection(landSpan: Int) {
             items(eps, span = { GridItemSpan(maxLineSpan) }) { EpisodeRow(it) }
         }
     }
+}
+
+private fun LazyGridScope.downloads() {
+    val list = Offline.items.toList()
+    if (list.isEmpty()) {
+        full { Text("Nothing downloaded yet. Use Download on a show, movie or audiobook - it then plays with no connection at all.") }
+        return
+    }
+    items(list, span = { GridItemSpan(maxLineSpan) }) { DownloadRow(it) }
+}
+
+@Composable
+private fun DownloadRow(s: Offline.Saved) {
+    Column(Modifier.fillMaxWidth()) {
+        HorizontalDivider()
+        Text("${s.title} - ${s.kindText()}", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
+        Text(s.stateText(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (s.done) Button(onClick = { Engine.playDownload(s) }, modifier = Modifier.semantics { contentDescription = "Play ${s.title}" }) { Text("Play") }
+            OutlinedButton(
+                onClick = { Offline.remove(s) },
+                modifier = Modifier.semantics { contentDescription = (if (s.done) "Remove the download of " else "Stop downloading ") + s.title }
+            ) { Text(if (s.done) "Remove" else "Stop") }
+        }
+    }
+}
+
+/** "Download" on a show, movie or book: what it says follows the download (getting ready, downloading, downloaded). */
+@Composable
+private fun DownloadButton(item: Item) {
+    var ask by remember { mutableStateOf(false) }
+    val book = item.type == "Book"
+    val mine = Offline.items.filter { it.id == item.id }
+    val busy = mine.firstOrNull { it.state == "preparing" || it.state == "downloading" }
+    val done = mine.filter { it.done }
+    val label = when {
+        busy != null -> busy.stateText()
+        done.isNotEmpty() -> "Downloaded" + if (done.size == 1 && !book) " (${done[0].kindText().lowercase()})" else ""
+        else -> "Download"
+    }
+    OutlinedButton(
+        onClick = {
+            when {
+                busy != null || done.isNotEmpty() -> Engine.openList("downloads", title = "Downloads")
+                book -> Offline.downloadBook(item)
+                Engine.watchUI -> ask = true
+                else -> Offline.download(item, "audio")
+            }
+        },
+        modifier = Modifier.semantics { contentDescription = "$label: ${item.label}" }
+    ) { Text(label) }
+    if (ask) ChoiceDialog(
+        "Download ${item.label}",
+        listOf("video" to "The video", "audio" to "Just the audio description (small - also for the car)"),
+        "", { Offline.download(item, it) }, { ask = false }
+    )
 }
 
 private fun LazyGridScope.detail(v: Engine.View) {
@@ -591,6 +662,7 @@ private fun EpisodeRow(item: Item) {
                 modifier = Modifier.semantics { contentDescription = "Start ${item.label} from the beginning" }
             ) { Text("Start over") }
             if (item.hasAd == false) RequestButton(item)
+            DownloadButton(item)
         }
     }
 }
@@ -626,6 +698,7 @@ private fun DetailHeader(item: Item) {
         Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FavButton(item)
             if (item.hasAd == false) RequestButton(item)
+            if (item.type == "Movie") DownloadButton(item)
         }
         if (item.overview.isNotEmpty()) Text(item.overview, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium)
     }
@@ -700,6 +773,7 @@ private fun SimpleRow(item: Item, v: Engine.View) {
                         onClick = { Engine.push(Engine.View("books_chapters", item.id, "${item.label} chapters")) },
                         modifier = Modifier.semantics { contentDescription = "Chapters of ${item.label}" }
                     ) { Text("Chapters") }
+                    DownloadButton(item)
                 }
             }
             "Series" -> {
@@ -727,6 +801,7 @@ private fun SimpleRow(item: Item, v: Engine.View) {
                     ) { Text("Start over") }
                     if (item.type == "Movie") FavButton(item)
                     if (item.hasAd == false) RequestButton(item)
+                    if (item.type == "Movie" || item.type == "Episode") DownloadButton(item)
                 }
             }
         }

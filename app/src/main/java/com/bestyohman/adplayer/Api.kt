@@ -133,7 +133,7 @@ object Api {
         return a
     }
 
-    fun url(path: String): String = if (path.startsWith("http://") || path.startsWith("https://")) path else base() + path
+    fun url(path: String): String = if (path.contains("://")) path else base() + path
 
     suspend fun get(path: String): JSONObject = withContext(Dispatchers.IO) {
         exec(Request.Builder().url(url(path)).header("Cache-Control", "no-cache").build())
