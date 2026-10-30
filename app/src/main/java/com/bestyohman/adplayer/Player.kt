@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -167,6 +168,8 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
     var dragTo by remember { mutableFloatStateOf(0f) }
     val shownPos = if (dragging) dragTo.toDouble() else pos
     val ep = info?.type == "Episode"
+    val conf = androidx.compose.ui.platform.LocalConfiguration.current
+    val land = conf.screenWidthDp > conf.screenHeightDp            // sideways: a lower, wider layout
     Box(
         Modifier.fillMaxSize().background(
             Brush.verticalGradient(0f to Color(0xB0000000), 0.25f to Color(0x30000000), 0.55f to Color(0x30000000), 1f to Color(0xD0000000))
@@ -186,7 +189,8 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
             IconButton(onClick = { openDialog("cast") }) { Icon(Ic.Cast, "Play on", tint = Color.White) }
         }
         // the middle: back, play / pause, forward
-        Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(44.dp)) {
+        Row(Modifier.align(Alignment.Center).offset(y = if (land) (-46).dp else 0.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(if (land) 64.dp else 44.dp)) {
             IconButton(onClick = { Engine.cmd("back30"); touch() }, modifier = Modifier.size(64.dp)) {
                 Icon(Ic.Replay, "Back 30 seconds", tint = Color.White, modifier = Modifier.size(48.dp))
             }
@@ -211,7 +215,7 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
                 else -> info.name
             }
             if (sub.isNotEmpty()) Text(sub, color = Color(0xFFBDBDBD), fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, color = Color.White, fontSize = if (land) 24.sp else 30.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (Engine.tg != null) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
                 Icon(Ic.Group, null, tint = EGreen, modifier = Modifier.size(18.dp))
                 Text(" Playing together", color = EGreen, fontSize = 14.sp)
@@ -229,7 +233,7 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
                         Box(Modifier.fillMaxWidth(f).fillMaxHeight().background(Color.White))
                     }
                 },
-                modifier = Modifier.fillMaxWidth().height(36.dp).semantics { contentDescription = "Position ${clock(shownPos)} of ${clock(dur)}" }
+                modifier = Modifier.fillMaxWidth().height(if (land) 28.dp else 36.dp).semantics { contentDescription = "Position ${clock(shownPos)} of ${clock(dur)}" }
             )
             Row(Modifier.fillMaxWidth()) {
                 Text(clock(shownPos), color = Color(0xFFBDBDBD), fontSize = 16.sp)
@@ -240,20 +244,26 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
                     .lowercase(Locale.getDefault())
                 Text("-${clock(left)}  /  $ends", color = Color(0xFFBDBDBD), fontSize = 16.sp)
             }
-            Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(top = if (land) 2.dp else 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (v.hasNext || ep) Btn(Ic.Next, "Next episode") { Engine.cmd("next"); touch() }
                 Btn(Ic.Lock, "Lock the controls") { lock() }
                 Btn(Ic.Speed, "Speed") { if (Engine.tg != null) Engine.say("The speed stays the same while playing together.") else openDialog("speed") }
                 Btn(Ic.Settings, "Settings") { openDialog("settings") }
                 Btn(Ic.Rotate, "Turn sideways") { act.toggleLandscape(); touch() }
+                if (land) { Spacer(Modifier.weight(1f)); Tabs(info, ep, openSheet) }
             }
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(26.dp)) {
-                Tab("Info") { openSheet("info") }
-                if (info?.j?.optJSONArray("chapters").objs().isNotEmpty()) Tab("Chapters") { openSheet("chapters") }
-                if (ep) Tab("Up Next") { openSheet("next") }
+            if (!land) Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(26.dp)) {
+                Tabs(info, ep, openSheet)
             }
         }
     }
+}
+
+@Composable
+private fun Tabs(info: Item?, ep: Boolean, openSheet: (String) -> Unit) {
+    Tab("Info") { openSheet("info") }
+    if (info?.j?.optJSONArray("chapters").objs().isNotEmpty()) Tab("Chapters") { openSheet("chapters") }
+    if (ep) Tab("Up Next") { openSheet("next") }
 }
 
 @Composable
@@ -264,7 +274,7 @@ private fun Btn(icon: ImageVector, label: String, onTap: () -> Unit) {
 @Composable
 private fun Tab(label: String, onTap: () -> Unit) {
     Text(label, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onTap).padding(vertical = 6.dp, horizontal = 2.dp))
+        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onTap).padding(vertical = 6.dp, horizontal = 8.dp))
 }
 
 /** Info, Chapters and Up Next, from the bottom of the player. */
