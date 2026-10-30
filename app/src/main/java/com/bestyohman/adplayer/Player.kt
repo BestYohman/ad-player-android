@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -154,6 +155,7 @@ fun PlayerScreen(act: MainActivity) {
     }
 }
 
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () -> Unit, openSheet: (String) -> Unit,
                      openDialog: (String) -> Unit, lock: () -> Unit) {
@@ -219,6 +221,14 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
                 onValueChange = { dragging = true; dragTo = it; touch() },
                 onValueChangeFinished = { PlayerHolder.session.seekTo((dragTo * 1000).toLong()); dragging = false; touch() },
                 colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color(0x66FFFFFF)),
+                thumb = { Box(Modifier.size(16.dp).background(Color.White, CircleShape)) },
+                track = { s ->
+                    val span = (s.valueRange.endInclusive - s.valueRange.start).coerceAtLeast(0.001f)
+                    val f = ((s.value - s.valueRange.start) / span).coerceIn(0f, 1f)
+                    Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color(0x55FFFFFF))) {
+                        Box(Modifier.fillMaxWidth(f).fillMaxHeight().background(Color.White))
+                    }
+                },
                 modifier = Modifier.fillMaxWidth().height(36.dp).semantics { contentDescription = "Position ${clock(shownPos)} of ${clock(dur)}" }
             )
             Row(Modifier.fillMaxWidth()) {

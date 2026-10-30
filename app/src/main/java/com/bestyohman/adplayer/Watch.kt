@@ -211,7 +211,7 @@ fun WatchApp(act: MainActivity) {
         )
     ) {
         val vd = Engine.vd
-        LaunchedEffect(vd?.item) { if (vd != null) W.player = true }
+        LaunchedEffect(vd) { if (vd != null) W.player = true }
         val showPlayer = W.player && vd != null
         LaunchedEffect(showPlayer) { act.playerMode(showPlayer) }
         LaunchedEffect(Engine.message) {
@@ -671,7 +671,8 @@ private fun MoviesTab(openDrawer: () -> Unit) {
 @Composable
 private fun Hero(info: Item?, listState: LazyListState?, content: @Composable () -> Unit = {}) {
     val src = info?.backdrop?.ifEmpty { info.thumb } ?: ""
-    Box(Modifier.fillMaxWidth().aspectRatio(0.98f)) {
+    val conf = androidx.compose.ui.platform.LocalConfiguration.current
+    Box(Modifier.fillMaxWidth().aspectRatio(if (conf.screenWidthDp > conf.screenHeightDp) 2.4f else 0.98f)) {
         if (src.isNotEmpty()) AsyncImage(picUrl(src, 1280), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to EBg)))
         Box(Modifier.align(Alignment.BottomStart).padding(start = 16.dp, end = 16.dp, bottom = 4.dp)) { content() }
@@ -719,11 +720,12 @@ private fun MetaRow(info: Item) {
 private fun Overview(text: String) {
     if (text.isEmpty()) return
     var open by remember { mutableStateOf(false) }
+    var over by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth().clickable { open = !open }.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(text, color = Color.White, fontSize = 17.sp, lineHeight = 24.sp, maxLines = if (open) 60 else 3, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(end = if (open) 0.dp else 0.dp))
-        if (!open && text.length > 140) Text("More", color = ESub, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.align(Alignment.BottomEnd).background(EBg).padding(start = 12.dp))
+        Text(text, color = Color.White, fontSize = 17.sp, lineHeight = 24.sp, maxLines = if (open) 60 else 3, overflow = TextOverflow.Clip,
+            onTextLayout = { if (!open) over = it.hasVisualOverflow })
+        if (!open && over) Text("More", color = ESub, fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.align(Alignment.BottomEnd).background(Brush.horizontalGradient(0f to Color.Transparent, 0.45f to EBg)).padding(start = 56.dp))
     }
 }
 

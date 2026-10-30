@@ -14,9 +14,11 @@ tapon() {   # tap the first thing whose text or description is $1 (or whose clas
   xy=$(python3 - "$1" <<'PY'
 import sys, re, xml.etree.ElementTree as ET
 want = sys.argv[1]
-for n in ET.parse("shots/ui.xml").iter("node"):
-    if want in (n.get("text"), n.get("content-desc")) or n.get("class", "").endswith(want):
-        a, b, c, d = map(int, re.findall(r"\d+", n.get("bounds"))); print((a + c) // 2, (b + d) // 2); break
+nodes = list(ET.parse("shots/ui.xml").iter("node"))
+hit = [n for n in nodes if want in (n.get("text"), n.get("content-desc")) or n.get("class", "").endswith(want)] or \
+      [n for n in nodes if want in (n.get("text") or "") or want in (n.get("content-desc") or "")]
+if hit:
+    a, b, c, d = map(int, re.findall(r"\d+", hit[0].get("bounds"))); print((a + c) // 2, (b + d) // 2)
 PY
 )
   [ -n "$xy" ] && adb shell input tap $xy && echo "tapped $1 at $xy" || echo "NOT FOUND: $1"
@@ -48,13 +50,19 @@ shot 06_season 5
 open "kind=item&id=m_magic&extra=Movie&title=Moonlit%20Magic%202"
 shot 07_movie 5
 tapon Play
-shot 08_player 8
+sleep 6
+tapon "Got it"
+shot 08_player 3
 adb shell input tap 540 1200
 shot 09_player_hidden 2
 adb shell input tap 540 1200
 sleep 1
 tapon Chapters
 shot 10_chapters 3
+adb shell input keyevent 4
+sleep 1
+tapon Info
+shot 10b_info 3
 adb shell input keyevent 4
 sleep 1
 adb shell input keyevent 4
@@ -78,9 +86,9 @@ shot 16_settings 3
 adb shell input keyevent 4
 adb shell settings put system accelerometer_rotation 0
 adb shell settings put system user_rotation 1
-open "kind=item&id=m_magic&extra=Movie&title=Moonlit%20Magic%202"
-sleep 2
-tapon Play
+open "kind=item&id=se1&extra=Season&title=Season%201"
+shot 16b_season_landscape 4
+tapon "Divide and Conquer"
 shot 17_player_landscape 8
 adb shell input tap 1200 540
 shot 18_player_landscape_tap 2
