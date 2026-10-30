@@ -86,12 +86,15 @@ shot 15_books 4
 open "kind=settings"
 shot 16_settings 3
 adb shell input keyevent 4
+open "kind=item&id=m_magic&extra=Movie&title=Moonlit%20Magic%202"
+sleep 3
+tapon Play
+sleep 5
 adb shell settings put system accelerometer_rotation 0
 adb shell settings put system user_rotation 1
-open "kind=item&id=se1&extra=Season&title=Season%201"
-shot 16b_season_landscape 4
-tapon "Divide and Conquer"
-shot 17_player_landscape 8
+shot 17_player_landscape 5
 adb shell input tap 1200 540
 shot 18_player_landscape_tap 2
+adb shell input keyevent 4
+shot 19_movie_landscape 3
 adb logcat -d -t 400 > shots/logcat.txt

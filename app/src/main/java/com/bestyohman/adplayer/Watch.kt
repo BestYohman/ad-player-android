@@ -313,9 +313,9 @@ fun PlayOnDialog(onClose: () -> Unit) {
 @Composable
 private fun BottomNav() {
     if (W.player) return
-    Box(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp)) {
+    Box(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(40.dp)).background(Color(0xF0232323))
+            Modifier.widthIn(max = 520.dp).fillMaxWidth().clip(RoundedCornerShape(40.dp)).background(Color(0xF0232323))
                 .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(40.dp)).padding(vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
@@ -349,8 +349,8 @@ private fun MiniPlayer() {
         else -> ""
     }
     val title = b?.title ?: v?.title ?: Engine.loc?.title ?: st.title.ifEmpty { st.text }
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp).clip(RoundedCornerShape(12.dp)).background(ECard)
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Row(
+        Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 12.dp).clip(RoundedCornerShape(12.dp)).background(ECard)
             .clickable { if (v != null) W.player = true else W.go(Page("nowplaying")) }.padding(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -366,7 +366,7 @@ private fun MiniPlayer() {
         }
         IconButton(onClick = { Engine.cmd("playpause") }) { Icon(if (st.paused) Ic.Play else Ic.Pause, if (st.paused) "Play" else "Pause", tint = Color.White) }
         IconButton(onClick = { Engine.cmd("stop") }) { Icon(Ic.Close, if (Engine.tg != null) "Leave playing together" else "Stop", tint = ESub) }
-    }
+    } }
 }
 
 // ------------------------------------------------------------------------------------------- the drawer
@@ -672,7 +672,7 @@ private fun MoviesTab(openDrawer: () -> Unit) {
 private fun Hero(info: Item?, listState: LazyListState?, content: @Composable () -> Unit = {}) {
     val src = info?.backdrop?.ifEmpty { info.thumb } ?: ""
     val conf = androidx.compose.ui.platform.LocalConfiguration.current
-    Box(Modifier.fillMaxWidth().aspectRatio(if (conf.screenWidthDp > conf.screenHeightDp) 2.4f else 0.98f)) {
+    Box(Modifier.fillMaxWidth().aspectRatio(if (conf.screenWidthDp > conf.screenHeightDp) 3f else 0.98f)) {
         if (src.isNotEmpty()) AsyncImage(picUrl(src, 1280), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to EBg)))
         Box(Modifier.align(Alignment.BottomStart).padding(start = 16.dp, end = 16.dp, bottom = 4.dp)) { content() }
