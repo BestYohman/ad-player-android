@@ -21,7 +21,7 @@ PY
 )
   [ -n "$xy" ] && adb shell input tap $xy && echo "tapped $1 at $xy" || echo "NOT FOUND: $1"
 }
-open() { adb shell am start -W -a android.intent.action.VIEW -d "adplayer://open?$1" $P >/dev/null; }
+open() { adb shell "am start -W -a android.intent.action.VIEW -d 'adplayer://open?$1' $P" >/dev/null; }
 adb shell am start -W -n $P/.MainActivity
 shot 00_server 6
 tapon EditText

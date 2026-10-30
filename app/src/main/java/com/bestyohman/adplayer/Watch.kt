@@ -279,12 +279,13 @@ private fun TopBar(title: String?, openDrawer: () -> Unit, solid: Boolean = true
     ) {
         if (W.stack.size > 1) IconButton(onClick = { W.back() }) { Icon(Ic.Back, "Back", tint = Color.White) }
         else IconButton(onClick = openDrawer) { Icon(Ic.Menu, "Menu", tint = Color.White) }
-        if (title == null) {
-            Icon(Ic.Play, null, tint = EGreen, modifier = Modifier.size(30.dp))
-            Text("AD Player", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, modifier = Modifier.padding(start = 2.dp))
-        } else Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 19.sp, maxLines = 1,
-            overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 4.dp).weight(1f, fill = false))
-        Spacer(Modifier.weight(1f))
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            if (title == null) {
+                Icon(Ic.Play, null, tint = EGreen, modifier = Modifier.size(30.dp))
+                Text("AD Player", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, modifier = Modifier.padding(start = 2.dp))
+            } else Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 19.sp, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 4.dp))
+        }
         IconButton(onClick = { castOpen = true }) {
             Icon(Ic.Cast, "Play on: " + (Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "choose"), tint = Color.White)
         }
@@ -607,8 +608,8 @@ private fun HomePage(p: Page, favorites: Boolean, openDrawer: () -> Unit) {
                     }
                 }
             }
-            posterRow("Continue Watching", home.itemList("resume"), 280.dp, wide = true) { Engine.start(it, true) }
-            posterRow("Next Up", home.itemList("next_up"), 280.dp, wide = true) { Engine.start(it, it.resume.isNotEmpty()) }
+            posterRow("Continue Watching", home.itemList("resume"), 300.dp, wide = true) { Engine.start(it, true) }
+            posterRow("Next Up", home.itemList("next_up"), 300.dp, wide = true) { Engine.start(it, it.resume.isNotEmpty()) }
             val bl = books?.itemList() ?: emptyList()
             posterRow("Continue Listening", bl, 170.dp, square = true, onMore = { W.openTab("books", Page("books")) }) { Engine.bookPlay(it, true, null) }
             home.optJSONArray("latest").objs().forEach { r ->
