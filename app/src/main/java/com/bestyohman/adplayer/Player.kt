@@ -258,7 +258,7 @@ private fun Tab(label: String, onTap: () -> Unit) {
 }
 
 /** Info, Chapters and Up Next, from the bottom of the player. */
-@OptIn(ExperimentalMaterial3Api::class)
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun InfoSheet(which: String, v: Engine.Vid, info: Item?, close: () -> Unit) {
     val st = rememberModalBottomSheetState(skipPartiallyExpanded = false)
