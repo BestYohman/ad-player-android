@@ -27,6 +27,13 @@ shot 00_server 6
 tapon EditText
 adb shell input text "10.0.2.2:8080"
 adb shell input keyevent 66
+sleep 5
+tapon EditText
+adb shell input text "yoh"
+adb shell input keyevent 66
+sleep 1
+adb shell input text "pw"
+adb shell input keyevent 66
 shot 01_home 10
 adb shell input swipe 540 1900 540 700 600
 shot 02_home_more 3

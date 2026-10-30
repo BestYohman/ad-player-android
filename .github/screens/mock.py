@@ -71,6 +71,7 @@ def info(i):
     return {"error": "Not found"}
 
 def route(path, q):
+    if path == "/api/play/login": return {"token": "tok", "message": "Signed in as Yoh."}
     if path == "/api/play/me": return {"signed_in": True, "name": "Yoh", "role": "watch", "server_id": "mock", "home_urls": []}
     if path == "/api/play/devices": return {"devices": [{"id": "tv1", "name": "Living room TV", "playing": ""}], "other": []}
     if path == "/api/play/together/list": return {"rooms": []}
