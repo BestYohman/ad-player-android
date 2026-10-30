@@ -197,6 +197,14 @@ class Item(val j: JSONObject) {
     val poster get() = j.s("poster")
     val thumb get() = j.s("thumb")
     val backdrop get() = j.s("backdrop")
+    // the Emby-like pages
+    val unplayed get() = j.i("unplayed")
+    val years get() = j.s("years").ifEmpty { year }
+    val rt get() = j.s("rt")
+    val aired get() = j.s("aired")
+    val logo get() = j.s("logo")
+    val seriesId get() = j.s("series_id")
+    val seasonId get() = j.s("season_id")
     // audiobooks
     val author get() = j.s("author")
     val narrator get() = j.s("narrator")

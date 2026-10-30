@@ -99,7 +99,7 @@ fun AppRoot(act: MainActivity) {
         when (Engine.screen) {
             "server" -> ServerScreen()
             "signin" -> SignInScreen()
-            "main" -> MainScreen(act)
+            "main" -> if (Engine.watchUI) WatchApp(act) else MainScreen(act)
             else -> Column(
                 Modifier.fillMaxSize().safeDrawingPadding(), verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -246,7 +246,7 @@ private fun Section(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun Invites() {
+fun Invites() {
     Card(
         Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
@@ -265,7 +265,7 @@ private fun Invites() {
 }
 
 @Composable
-private fun ChoiceDialog(title: String, options: List<Pair<String, String>>, selected: String, onPick: (String) -> Unit, onClose: () -> Unit) {
+fun ChoiceDialog(title: String, options: List<Pair<String, String>>, selected: String, onPick: (String) -> Unit, onClose: () -> Unit) {
     AlertDialog(
         onDismissRequest = onClose,
         title = { Text(title) },
@@ -394,7 +394,7 @@ fun VideoView(modifier: Modifier) {
 }
 
 @Composable
-private fun DelayButton() {
+fun DelayButton() {
     var open by remember { mutableStateOf(false) }
     val cur = Engine.delays.firstOrNull { it.first == Engine.headphoneDelay }?.second ?: Engine.headphoneDelay
     OutlinedButton(onClick = { open = true }, modifier = Modifier.padding(top = 4.dp)) { Text("Headphone delay: $cur") }
@@ -402,14 +402,14 @@ private fun DelayButton() {
 }
 
 @Composable
-private fun QualityButton() {
+fun QualityButton() {
     var open by remember { mutableStateOf(false) }
     OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) { Text("Video quality: " + Engine.qualityLabel()) }
     if (open) ChoiceDialog("Video quality (megabits a second)", Engine.qualities, Engine.quality, { Engine.chooseQuality(it) }, { open = false })
 }
 
 @Composable
-private fun NowPlaying(st: Engine.St) {
+fun NowPlaying(st: Engine.St) {
     var speedOpen by remember { mutableStateOf(false) }
     var sleepOpen by remember { mutableStateOf(false) }
     Section {
@@ -516,7 +516,7 @@ private fun LazyGridScope.downloads() {
 }
 
 @Composable
-private fun DownloadRow(s: Offline.Saved) {
+fun DownloadRow(s: Offline.Saved) {
     Column(Modifier.fillMaxWidth()) {
         HorizontalDivider()
         Text("${s.title} - ${s.kindText()}", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
@@ -555,7 +555,13 @@ private fun DownloadButton(item: Item) {
         },
         modifier = Modifier.semantics { contentDescription = "$label: ${item.label}" }
     ) { Text(label) }
-    if (ask) ChoiceDialog(
+    if (ask) DownloadChoices(item) { ask = false }
+}
+
+/** Which download: the video (three sizes) or just the audio description. */
+@Composable
+fun DownloadChoices(item: Item, onClose: () -> Unit) {
+    ChoiceDialog(
         "Download ${item.label}",
         listOf(
             "video:original" to "The video - original quality (biggest)",
@@ -563,7 +569,7 @@ private fun DownloadButton(item: Item) {
             "video:small" to "The video - small (about 0.7 GB an hour)",
             "audio:original" to "Just the audio description (about 70 MB an hour - also for the car)"
         ),
-        "", { Offline.download(item, it.substringBefore(':'), it.substringAfter(':')) }, { ask = false }
+        "", { Offline.download(item, it.substringBefore(':'), it.substringAfter(':')) }, onClose
     )
 }
 

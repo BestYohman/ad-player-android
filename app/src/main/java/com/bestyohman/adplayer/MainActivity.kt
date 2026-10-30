@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -31,6 +32,7 @@ class MainActivity : ComponentActivity() {
     private var controller: ListenableFuture<MediaController>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         Prefs.init(applicationContext)
         PlayerHolder.init(applicationContext)
@@ -89,6 +91,24 @@ class MainActivity : ComponentActivity() {
                 }
             })
         } catch (e: Exception) { }
+    }
+
+    /** The watch app's player: without the phone's bars (it turns with the phone). */
+    fun playerMode(on: Boolean) {
+        val ctl = WindowCompat.getInsetsController(window, window.decorView)
+        if (on) {
+            ctl.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            ctl.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            ctl.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    /** The player's turn button: sideways, or back to however the phone is held. */
+    fun toggleLandscape() {
+        requestedOrientation = if (requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE)
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
     }
 
     /** Full screen video: sideways, without the phone's bars. */
