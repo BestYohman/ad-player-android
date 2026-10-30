@@ -49,12 +49,28 @@ class MainActivity : ComponentActivity() {
         ) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         setContent { AppTheme { AppRoot(this) } }
         if (Engine.screen == "boot" || Engine.me == null) Engine.boot()
+        openLink(intent)
+    }
+
+    /** adplayer://open?kind=item&id=...&extra=Series - opens a page of the watch app (used for the screenshots). */
+    private fun openLink(intent: android.content.Intent?) {
+        val u = intent?.data ?: return
+        if (u.scheme != "adplayer" || u.host != "open") return
+        val kind = u.getQueryParameter("kind") ?: return
+        W.player = false
+        when (kind) {
+            "home", "search", "downloads", "movies" -> W.openTab(kind)
+            "books" -> W.openTab("books", Page("books"))
+            "favorites" -> W.openTab("home", Page("favorites"))
+            else -> W.go(Page(kind, u.getQueryParameter("id") ?: "", u.getQueryParameter("title") ?: "", u.getQueryParameter("extra") ?: ""))
+        }
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         // a "play together" notification (adplayer://join): show the Join button straight away
-        if (intent.data?.scheme == "adplayer") Engine.scope.launch { try { Engine.pollInvites() } catch (e: Exception) { } }
+        if (intent.data?.scheme == "adplayer" && intent.data?.host != "open") Engine.scope.launch { try { Engine.pollInvites() } catch (e: Exception) { } }
+        openLink(intent)
     }
 
     override fun onStart() {
