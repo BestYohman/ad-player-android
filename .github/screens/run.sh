@@ -26,15 +26,17 @@ PY
 open() { adb shell "am start -W -a android.intent.action.VIEW -d 'adplayer://open?$1' $P" >/dev/null; }
 adb shell am start -W -n $P/.MainActivity
 shot 00_server 6
-tapon EditText
-adb shell input text "10.0.2.2:8080"
-adb shell input keyevent 66
-sleep 5
-tapon EditText
-adb shell input text "yoh"
-adb shell input keyevent 66
-sleep 1
-adb shell input text "pw"
+for try in 1 2 3; do
+  tapon EditText; sleep 2
+  adb shell input text "10.0.2.2:8080"; sleep 1
+  adb shell input keyevent 66; sleep 6
+  dump; grep -q 'Use your Emby' shots/ui.xml && break
+  adb shell input keyevent KEYCODE_MOVE_END; for i in $(seq 1 30); do adb shell input keyevent 67; done
+done
+tapon EditText; sleep 2
+adb shell input text "yoh"; sleep 1
+adb shell input keyevent 66; sleep 1
+adb shell input text "pw"; sleep 1
 adb shell input keyevent 66
 shot 01_home 10
 adb shell input swipe 540 1900 540 700 600
