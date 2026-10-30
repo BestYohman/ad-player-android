@@ -372,7 +372,7 @@ private fun MiniPlayer() {
             )
         }
         IconButton(onClick = { Engine.cmd("playpause") }) { Icon(if (st.paused) Ic.Play else Ic.Pause, if (st.paused) "Play" else "Pause", tint = Color.White) }
-        IconButton(onClick = { Engine.cmd("stop") }) { Icon(Ic.Close, if (Engine.tg != null) "Leave playing together" else "Stop", tint = ESub) }
+        IconButton(onClick = { Engine.cmd("stop") }) { Icon(Ic.Close, if (Engine.tg != null) "Stop for everyone" else "Stop", tint = ESub) }
     } }
 }
 

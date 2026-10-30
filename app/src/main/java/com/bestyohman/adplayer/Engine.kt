@@ -409,12 +409,31 @@ object Engine {
                 if (d.s("state") == "failed") {
                     say(d.err().ifEmpty { "Couldn't get the audio ready." }); loc = null; mode = Mode.NONE; return@launchSafe
                 }
-                val canStart = d.s("url").isNotEmpty() && (d.s("state") == "ready" ||
-                    (d.b("playable") && (me.resumeS <= 5 || d.d("encoded_s") >= me.resumeS + 15)))
+                // playing together: the whole audio is on this phone before it counts as ready (so the network can't
+                // make anyone wait later); on its own it can start as soon as the first part is made
+                val canStart = if (me.tg) d.s("state") == "ready" && d.s("full_url").isNotEmpty()
+                    else d.s("url").isNotEmpty() && (d.s("state") == "ready" ||
+                        (d.b("playable") && (me.resumeS <= 5 || d.d("encoded_s") >= me.resumeS + 15)))
                 if (canStart) break
                 me.progress = d.i("progress"); me.seeking = d.b("playable") && me.resumeS > 5; tick++
                 delay(1000)
                 d = Api.get("/api/play/listen/job/${me.job}")
+            }
+            if (me.tg) {
+                me.progress = 100; me.seeking = false; tick++
+                var f: java.io.File? = null
+                for (i in 0 until 20) {
+                    f = Downloads.get(Api.url(d.s("full_url")), "${me.job}.m4a")
+                    if (f != null || loc !== me) break
+                    delay(3000)                             // the connection dropped: carry on from where it got to
+                }
+                if (loc !== me) return@launchSafe
+                if (f != null) {
+                    me.local = true
+                    playUrl(Uri.fromFile(f).toString(), me.title, if (me.hasAd) "Audio description" else "Soundtrack", me.resumeS, false)
+                    me.ready = true
+                    return@launchSafe
+                }
             }
             playUrl(d.s("url"), me.title, if (me.hasAd) "Audio description" else "Soundtrack", me.resumeS, !me.tg)
             me.ready = true
@@ -720,19 +739,24 @@ object Engine {
             } else {
                 me.title = b!!.s("title"); me.author = b.s("author"); me.duration = b.d("duration")
                 me.chapters = b.optJSONArray("chapters").objs().map { Ch(it.d("start"), it.d("end"), it.s("title")) }
-                me.tracks = b.optJSONArray("tracks").objs().map { Tr(it.d("start"), it.d("duration"), it.s("url")) }
+                // the book in pieces (each part, or 10 minutes of a long file): fetched one at a time onto the phone
+                val segs = b.optJSONArray("segs").objs().ifEmpty { b.optJSONArray("tracks").objs() }
+                me.tracks = segs.map { Tr(it.d("start"), it.d("duration"), it.s("url")) }
                 art = Uri.parse(Api.url(b.s("cover")))
             }
             if (me.tracks.isEmpty()) { say("That book has no audio."); bk = null; mode = Mode.NONE; return@launchSafe }
             val serverPos = if (b != null && b.err().isEmpty()) (if (b.b("finished")) 0.0 else b.d("position")) else (off?.pos ?: 0.0)
             var pos = at ?: if (resume) max(0.0, serverPos - 2) else 0.0
             if (pos >= me.duration - 2) pos = 0.0
-            val list = me.tracks.mapIndexed { i, t ->
-                MediaItem.Builder().setUri(Api.url(t.url)).setMediaId("part$i")
-                    .setMediaMetadata(MediaMetadata.Builder().setTitle(me.title).setArtist(me.author).setArtworkUri(art).build())
-                    .build()
-            }
             val i = trackAt(me, pos)
+            if (off == null) {
+                // the piece it starts in is on the phone before it plays (then the next ones while it plays)
+                Downloads.keepOnlyBook(id)
+                if (Downloads.fetch(Api.url(me.tracks[i].url), Downloads.bookPart(id, i, me.tracks[i].url)) == null && bk === me)
+                    say("The connection is slow - playing ${me.title} straight from the PC.")
+                if (bk !== me) return@launchSafe
+            }
+            val list = me.tracks.mapIndexed { j, t -> bookItem(me, j, art, off == null) }
             mediaReady = false
             exo.setMediaItems(list, i, ((pos - me.tracks[i].start) * 1000).toLong().coerceAtLeast(0L))
             exo.setPlaybackSpeed(if (noplay) 1f else Prefs.bookSpeed)
@@ -740,6 +764,7 @@ object Engine {
             exo.playWhenReady = !noplay
             me.ready = true
             lastSave = System.currentTimeMillis()
+            if (off == null) bookPrefetch(me, art)
             if (!noplay) say("Playing ${me.title}" + (if (me.author.isNotEmpty()) " by ${me.author}" else "") + (if (pos > 5) " from ${fmtTime(pos)}" else "") + ".")
             if (off != null && resume && at == null) {
                 val started = pos
@@ -751,6 +776,32 @@ object Engine {
                         bookSeek(sp); say("Carrying on from ${fmtTime(sp)}, where it was left on another device.")
                     }
                 } catch (e: Exception) { }
+            }
+        }
+    }
+
+    private fun bookItem(me: Bk, j: Int, art: Uri, pieces: Boolean): MediaItem {
+        val t = me.tracks[j]
+        val f = if (pieces) Downloads.bookPart(me.id, j, t.url).takeIf { it.exists() && it.length() > 1000 } else null
+        return MediaItem.Builder().setUri(if (f != null) Uri.fromFile(f).toString() else Api.url(t.url)).setMediaId("part$j")
+            .setMediaMetadata(MediaMetadata.Builder().setTitle(me.title).setArtist(me.author).setArtworkUri(art).build())
+            .build()
+    }
+
+    /** While a book plays: the next pieces are fetched onto the phone, and played from there. */
+    private fun bookPrefetch(me: Bk, art: Uri) {
+        scope.launch {
+            while (bk === me) {
+                val cur = exo.currentMediaItemIndex.coerceIn(0, me.tracks.size - 1)
+                for (j in cur..min(cur + 2, me.tracks.size - 1)) {
+                    val t = me.tracks[j]
+                    val f = Downloads.bookPart(me.id, j, t.url)
+                    if (f.exists() && f.length() > 1000) continue
+                    if (Downloads.fetch(Api.url(t.url), f) == null) break
+                    if (bk !== me) return@launch
+                    if (j != exo.currentMediaItemIndex && j < exo.mediaItemCount) exo.replaceMediaItem(j, bookItem(me, j, art, true))
+                }
+                delay(5000)
             }
         }
     }
@@ -1069,7 +1120,7 @@ object Engine {
     // ---------------------------------------------------------------- playing together
     var together by mutableStateOf(Prefs.together)
     class Tg(val room: String) {
-        var kind = ""; var role = ""; var iseq = 0; var iseqLoaded = 0; var msgSeq = 0
+        var kind = ""; var role = ""; var iseq = 0; var iseqLoaded = 0; var msgSeq = 0; var jseq = 0; var waitingAhead = false
         var last = JSONObject(); var rtt = 0.15
     }
     var tg by mutableStateOf<Tg?>(null)
@@ -1135,7 +1186,7 @@ object Engine {
 
     private fun tgBegin(d: JSONObject) {
         val t = Tg(d.s("id"))
-        t.kind = d.s("kind"); t.role = d.s("role"); t.msgSeq = d.i("msg_seq"); t.last = d
+        t.kind = d.s("kind"); t.role = d.s("role"); t.msgSeq = d.i("msg_seq"); t.last = d; t.jseq = d.i("jseq")
         skips = 0; stalls = 0
         tg = t
         invites = emptyList()
@@ -1238,24 +1289,36 @@ object Engine {
         // a little ahead by how late this phone's sound reaches the ears (Bluetooth headphones), so both hear it together
         val target = d.d("pos") + (if (run) t.rtt / 2 * base else 0.0) + outputDelay() * base
         val diff = mTime() - target
-        // Small differences: play a little faster or slower. Skipping (which makes the phone load again - slow on a
-        // phone network) only for big ones, aimed ahead by how long a skip takes on this phone.
-        val far = if (t.role == "video") 4.0 else 2.5
-        val lead = min(5.0, seekCost) * base
+        // Someone pressed back, forward, a chapter or the next episode: every phone goes there.
+        val js = d.i("jseq")
+        if (js != t.jseq) {
+            t.jseq = js; t.waitingAhead = false
+            if (abs(diff) > 0.5) mSeek(target + if (run) min(5.0, seekCost) * base else 0.0)
+            mRate(base)
+            if (run) exo.play() else exo.pause()
+            return
+        }
+        // Otherwise nobody is ever skipped ahead to catch up (they may be in different places - nothing should be
+        // missed): a phone that is behind just carries on (the PC moves everyone back to it), and a phone that is ahead
+        // waits until the others reach it. A little ahead: a touch slower.
         if (run) {
-            if (!exo.playWhenReady) {
-                if (abs(diff) > 0.75) mSeek(target + lead)
-                mRate(base); exo.play(); return
-            }
             when {
-                abs(diff) > far -> { mSeek(target + lead); mRate(base) }
-                abs(diff) > 0.15 -> mRate(base * (1 - (diff * 0.15).coerceIn(-0.08, 0.08)))
-                else -> mRate(base)
+                diff > 0.6 || (t.waitingAhead && diff > 0.1) -> {
+                    if (!t.waitingAhead) { t.waitingAhead = true; skips++ }
+                    if (exo.playWhenReady) exo.pause()
+                    mRate(base)
+                }
+                else -> {
+                    t.waitingAhead = false
+                    if (!exo.playWhenReady) exo.play()
+                    if (diff > 0.15) mRate(base * (1 - min(0.05, diff * 0.1))) else mRate(base)
+                }
             }
         } else {
+            t.waitingAhead = false
             if (exo.playWhenReady) exo.pause()
             mRate(base)
-            if (abs(diff) > 0.25) mSeek(target)
+            if (diff > 0.25) mSeek(target)                // paused: back to where the room is (never forward)
         }
     }
 
@@ -1306,7 +1369,7 @@ object Engine {
         val d = t.last
         var c = c0
         if (c == "volup" || c == "voldown") { say("Use the phone's volume buttons."); return }
-        if (c == "stop") { tgLeave(false); return }
+        if (c == "stop") { tgStopAll(); return }
         if (c == "playpause") c = if (d.b("want") && !d.b("waiting")) "pause" else "play"
         if (c == "unpause") c = "play"
         if (c == "play") { tgControl("play", emptyMap(), if (d.b("waiting")) "Starting." else "Playing."); return }
@@ -1327,6 +1390,20 @@ object Engine {
             return
         }
         if (c == "next") tgControl("next")
+    }
+
+    /** Stop for everyone: the other phones stop too (and are told who stopped it). */
+    fun tgStopAll() {
+        val t = tg ?: return
+        seenInvites.add(t.room)
+        tgJob?.cancel()
+        tg = null
+        stopPhone(true)
+        say("Stopped for everyone.")
+        scope.launch {
+            try { Api.post("/api/play/together/control", mapOf("cid" to Prefs.cid, "room" to t.room, "action" to "stop")) } catch (e: Exception) { }
+            pollInvites()
+        }
     }
 
     fun tgLeave(quiet: Boolean) {

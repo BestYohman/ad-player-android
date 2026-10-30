@@ -143,12 +143,14 @@ fun PlayerScreen(act: MainActivity) {
         "settings" -> ChoiceDialog("Settings", buildList {
             add("quality" to "Video quality: " + Engine.qualityLabel())
             if (Engine.tg != null) add("delay" to "Headphone delay: " + (Engine.delays.firstOrNull { it.first == Engine.headphoneDelay }?.second ?: Engine.headphoneDelay))
-            add("stop" to if (Engine.tg != null) "Leave playing together" else "Stop playing")
+            add("stop" to if (Engine.tg != null) "Stop for everyone" else "Stop playing")
+            if (Engine.tg != null) add("leave" to "Leave - the others carry on")
         }, "", {
             when (it) {
                 "quality" -> dialog = "quality"
                 "delay" -> dialog = "delay"
                 "stop" -> { Engine.cmd("stop"); W.player = false }
+                "leave" -> { Engine.tgLeave(false); W.player = false }
             }
         }, { if (dialog == "settings") dialog = "" })
         "quality" -> ChoiceDialog("Video quality (megabits a second)", Engine.qualities, Engine.quality, { Engine.chooseQuality(it) }, { dialog = "" })
