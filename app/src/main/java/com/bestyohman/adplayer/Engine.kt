@@ -1208,6 +1208,8 @@ object Engine {
             val d = Api.post("/api/play/together/beat", mapOf("cid" to Prefs.cid, "room" to t.room,
                 "pos" to (if (rd) mTime() else 0.0).toString(), "ready" to if (rd) "1" else "0",
                 "buf" to if (mBuf()) "1" else "0", "iseq" to t.iseqLoaded.toString(),
+                // which skip this phone has got to, and whether it is still loading there (everyone waits for it)
+                "jseq" to t.jseq.toString(), "ld" to if (!rd || exo.playbackState == Player.STATE_BUFFERING) "1" else "0",
                 "sk" to skips.toString(), "stl" to stalls.toString()))
             if (tg !== t) return
             val r = (SystemClock.elapsedRealtime() - t0) / 1000.0
@@ -1293,7 +1295,8 @@ object Engine {
         val js = d.i("jseq")
         if (js != t.jseq) {
             t.jseq = js; t.waitingAhead = false
-            if (abs(diff) > 0.5) mSeek(target + if (run) min(5.0, seekCost) * base else 0.0)
+            // (the room waits while every phone gets there, so no aiming ahead is needed)
+            if (abs(diff) > 0.5) mSeek(target)
             mRate(base)
             if (run) exo.play() else exo.pause()
             return
