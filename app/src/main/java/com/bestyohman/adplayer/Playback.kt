@@ -11,6 +11,8 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.datasource.HttpDataSource
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
@@ -33,7 +35,12 @@ object PlayerHolder {
         app = ctx.applicationContext
         exo = ExoPlayer.Builder(app)
             .setMediaSourceFactory(
-                DefaultMediaSourceFactory(OkHttpDataSource.Factory(Api.http)).setLoadErrorHandlingPolicy(PatientPolicy())
+                // files on the phone (downloads) and the PC's links (through OkHttp, with the sign-in) both work;
+                // MP3s without an index can still jump straight to where she left off (not read from the start)
+                DefaultMediaSourceFactory(
+                    DefaultDataSource.Factory(app, OkHttpDataSource.Factory(Api.http)),
+                    DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true).setConstantBitrateSeekingAlwaysEnabled(true)
+                ).setLoadErrorHandlingPolicy(PatientPolicy())
             )
             .setSeekBackIncrementMs(30_000)
             .setSeekForwardIncrementMs(30_000)

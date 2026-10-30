@@ -705,12 +705,9 @@ object Engine {
         if (!noplay) say("Getting $label ready…")
         launchSafe {
             val off = Offline.done(id, "book")
-            val b = try {
-                Api.get("/api/play/books/book?id=${enc(id)}")
-            } catch (e: ApiError) {
-                if (off == null || e.login) throw e
-                null                                       // no connection: the download, from where it was left on the phone
-            }
+            // downloaded: start straight away from the phone's copy (where it was left on the phone), then catch up
+            // with Audiobookshelf's place in the background instead of waiting for the PC first
+            val b = if (off != null) null else Api.get("/api/play/books/book?id=${enc(id)}")
             if (bk !== me) return@launchSafe
             if (b != null && b.err().isNotEmpty() && off == null) { say(b.err()); bk = null; mode = Mode.NONE; return@launchSafe }
             val art: Uri
@@ -744,6 +741,17 @@ object Engine {
             me.ready = true
             lastSave = System.currentTimeMillis()
             if (!noplay) say("Playing ${me.title}" + (if (me.author.isNotEmpty()) " by ${me.author}" else "") + (if (pos > 5) " from ${fmtTime(pos)}" else "") + ".")
+            if (off != null && resume && at == null) {
+                val started = pos
+                try {
+                    val sb = Api.get("/api/play/books/book?id=${enc(id)}")
+                    val sp = if (sb.err().isNotEmpty() || sb.b("finished")) -1.0 else max(0.0, sb.d("position") - 2)
+                    // the PC knows a later place (listened on another phone) and she hasn't moved: go there
+                    if (bk === me && sp > 0 && sp > started + 30 && kotlin.math.abs(bookPos() - started) < 20) {
+                        bookSeek(sp); say("Carrying on from ${fmtTime(sp)}, where it was left on another device.")
+                    }
+                } catch (e: Exception) { }
+            }
         }
     }
 
@@ -773,6 +781,12 @@ object Engine {
         var i = -1
         for (n in c.indices) { if (c[n].start <= pos + 0.5) i = n else break }
         return i
+    }
+
+    /** Jump to a place (seconds into the book or video), together or not. */
+    fun seekTo(pos: Double) {
+        if (tg != null) { tgControl("seek", mapOf("pos" to pos.toString())); return }
+        if (mode == Mode.BOOK) bookSeek(pos) else exo.seekTo((max(0.0, pos) * 1000).toLong())
     }
 
     fun setSpeed(v: Float) {

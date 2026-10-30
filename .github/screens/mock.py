@@ -66,11 +66,18 @@ def info(i):
         return d
     for e in EPS + MOVIES + SERIES + [NINE, ENC]:
         if e["id"] == i:
-            d = dict(e); d.update(logo="/api/play/img/logo_the/Logo" if e.get("series_id") == "s_chase" else "", chapters=[], people=[])
+            d = dict(e); d.update(logo="/api/play/img/logo_the/Logo" if e.get("series_id") == "s_chase" else "", chapters=[], people=PEOPLE[:2],
+                                  video_info="1080p H264", audio_info="AAC Stereo (Default)", directors="Jean Director")
             return d
     return {"error": "Not found"}
 
 def route(path, q):
+    if path == "/api/play/books/book":
+        return {"id": "b1", "title": "The Bank Job", "author": "Ben Writer", "narrator": "Sam Voice", "duration": 120.0, "position": 50.0,
+                "finished": False, "cover": "/api/play/books/cover/b1", "series": "The Ernest Mysteries", "year": "2025", "genres": "Mystery, Crime",
+                "description": "A heist goes wrong in the most polite way possible, and one man in the queue is sure he knows who did it. " * 3,
+                "chapters": [{"start": 0, "end": 40, "title": "The Queue"}, {"start": 40, "end": 80, "title": "The Vault"}, {"start": 80, "end": 120, "title": "The Parrot"}],
+                "tracks": [{"start": 0, "duration": 60, "url": "/media/book.mp3"}, {"start": 60, "duration": 60, "url": "/media/book.mp3"}]}
     if path == "/api/play/login": return {"token": "tok", "message": "Signed in as Yoh."}
     if path == "/api/play/me": return {"signed_in": True, "name": "Yoh", "role": "watch", "server_id": "mock", "home_urls": []}
     if path == "/api/play/devices": return {"devices": [], "other": []}
@@ -109,7 +116,7 @@ class H(http.server.BaseHTTPRequestHandler):
         if not os.path.isfile(p): return self.send(404, b"no", "text/plain")
         data = open(p, "rb").read()
         rng = self.headers.get("Range")
-        if rng and ct.startswith("video"):
+        if rng and ct.startswith(("video", "audio")):
             a, _, b = rng.replace("bytes=", "").partition("-"); a = int(a); b = int(b) if b else len(data) - 1
             self.send_response(206); self.send_header("Content-Type", ct); self.send_header("Accept-Ranges", "bytes")
             self.send_header("Content-Range", f"bytes {a}-{b}/{len(data)}"); self.send_header("Content-Length", str(b - a + 1)); self.end_headers()
@@ -129,6 +136,7 @@ class H(http.server.BaseHTTPRequestHandler):
         m = re.match(r"/api/play/books/cover/(\w+)$", u.path)
         if m: return self.file(os.path.join(IMG, f"book_{m.group(1)}.jpg"), "image/jpeg")
         if u.path == "/media/test.mp4": return self.file(os.path.join(HERE, "test.mp4"), "video/mp4")
+        if u.path == "/media/book.mp3": return self.file(os.path.join(HERE, "book.mp3"), "audio/mpeg")
         r = route(u.path, q)
         if r is None: return self.send(404, b'{"error":"no"}', "application/json")
         self.send(200, json.dumps(r).encode(), "application/json")

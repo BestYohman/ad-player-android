@@ -83,6 +83,14 @@ open "kind=downloads"
 shot 14_downloads 3
 open "kind=books"
 shot 15_books 4
+tapon "The Bank Job"
+shot 15b_book_page 4
+tapon Resume
+shot 15c_audio_player 6
+adb shell input keyevent 4
+sleep 1
+open "kind=item&id=e1&extra=Episode&title=The%20Race%20Begins"
+shot 15d_episode_page 5
 open "kind=settings"
 shot 16_settings 3
 adb shell input keyevent 4
