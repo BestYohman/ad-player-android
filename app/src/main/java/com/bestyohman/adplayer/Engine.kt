@@ -97,6 +97,7 @@ object Engine {
                 offline = false
                 screen = "main"
                 Offline.resume()
+                scope.launch { flushPlaces() }
                 loadDevices(false)
                 if (stack.isEmpty()) openList(if (what == "books") "books_continue" else "continue_$what", quiet = true)
                 pollInvites()
@@ -387,14 +388,20 @@ object Engine {
         val off = Offline.done(id, "audio")
         if (off != null) {                                  // downloaded: play it from the phone
             me.title = off.title; me.hasNext = off.hasNext; me.runtime = off.runtime; me.local = true
-            me.resumeS = tgPos ?: if (resume) (if (hint > 0) hint else off.pos) else 0.0
+            me.resumeS = tgPos ?: if (resume) (if (off.posAt > 0 || hint <= 0) off.pos else hint) else 0.0
             playUrl(Uri.fromFile(java.io.File(off.file)).toString(), me.title, "Audio description", me.resumeS, !me.tg)
             me.ready = true
             if (!me.tg) say("Playing ${me.title} from the download" + (if (me.resumeS > 5) " from ${fmtTime(me.resumeS)}" else "") + ".")
+            if (!me.tg && resume) launchSafe {
+                flushPlaces()
+                reconcile("video", id, off.pos, off.posAt, me.resumeS, { loc === me }, { exo.currentPosition / 1000.0 },
+                    { exo.seekTo((it * 1000).toLong()) }, "/api/play/listen/save")
+            }
             return
         }
         if (!me.tg) say("Getting the audio of $label ready…")
         launchSafe {
+            flushPlaces()
             var d = Api.post("/api/play/listen/prepare", mapOf("item" to id, "fmt" to "hls", "any" to if (me.tg) "1" else "0"))
             if (loc !== me) return@launchSafe
             if (d.err().isNotEmpty() && d.s("id").isEmpty()) { say(d.err()); loc = null; mode = Mode.NONE; return@launchSafe }
@@ -450,14 +457,20 @@ object Engine {
         val off = Offline.done(id, "video")
         if (off != null) {                                  // downloaded: play it from the phone
             me.title = off.title; me.hasNext = off.hasNext; me.runtime = off.runtime
-            val pos = tgPos ?: if (resume) (if (hint > 0) hint else off.pos) else 0.0
+            val pos = tgPos ?: if (resume) (if (off.posAt > 0 || hint <= 0) off.pos else hint) else 0.0
             playUrl(Uri.fromFile(java.io.File(off.file)).toString(), me.title, "", pos, !me.tg)
             if (!me.tg) say("Playing ${me.title} from the download" + (if (pos > 5) " from ${fmtTime(pos)}" else "") + ".")
+            if (!me.tg && resume) launchSafe {
+                flushPlaces()
+                reconcile("video", id, off.pos, off.posAt, pos, { vd === me }, { exo.currentPosition / 1000.0 },
+                    { exo.seekTo((it * 1000).toLong()) }, "/api/play/listen/save")
+            }
             return
         }
         if (!me.tg) say("Getting the video of $label ready…")
         stallTimes.clear()
         launchSafe {
+            flushPlaces()
             val d = videoPrepare(id, videoMbps())
             if (vd !== me) return@launchSafe
             if (d.err().isNotEmpty()) { say(d.err()); vd = null; mode = Mode.NONE; return@launchSafe }
@@ -608,6 +621,7 @@ object Engine {
     /** The phone found a network again: don't wait for the next try. */
     fun networkBack(mobile: Boolean) {
         onMobileData = mobile
+        scope.launch { delay(3000); flushPlaces() }
         try { Api.http.connectionPool.evictAll() } catch (e: Exception) { }
         recheckAddress()
     }
@@ -726,6 +740,7 @@ object Engine {
             val off = Offline.done(id, "book")
             // downloaded: start straight away from the phone's copy (where it was left on the phone), then catch up
             // with Audiobookshelf's place in the background instead of waiting for the PC first
+            if (off == null) flushPlaces()
             val b = if (off != null) null else Api.get("/api/play/books/book?id=${enc(id)}")
             if (bk !== me) return@launchSafe
             if (b != null && b.err().isNotEmpty() && off == null) { say(b.err()); bk = null; mode = Mode.NONE; return@launchSafe }
@@ -767,15 +782,9 @@ object Engine {
             if (off == null) bookPrefetch(me, art)
             if (!noplay) say("Playing ${me.title}" + (if (me.author.isNotEmpty()) " by ${me.author}" else "") + (if (pos > 5) " from ${fmtTime(pos)}" else "") + ".")
             if (off != null && resume && at == null) {
-                val started = pos
-                try {
-                    val sb = Api.get("/api/play/books/book?id=${enc(id)}")
-                    val sp = if (sb.err().isNotEmpty() || sb.b("finished")) -1.0 else max(0.0, sb.d("position") - 2)
-                    // the PC knows a later place (listened on another phone) and she hasn't moved: go there
-                    if (bk === me && sp > 0 && sp > started + 30 && kotlin.math.abs(bookPos() - started) < 20) {
-                        bookSeek(sp); say("Carrying on from ${fmtTime(sp)}, where it was left on another device.")
-                    }
-                } catch (e: Exception) { }
+                flushPlaces()
+                reconcile("book", id, off.pos, off.posAt, pos, { bk === me }, { bookPos() }, { bookSeek(it) }, "/api/play/books/save",
+                    mapOf("duration" to me.duration.toString()))
             }
         }
     }
@@ -927,8 +936,53 @@ object Engine {
             }
             else -> return
         }
+        val f = form + ("at" to (System.currentTimeMillis() / 1000.0).toString())
         form["item"]?.let { Offline.notePos(it, form["pos"]?.toDoubleOrNull() ?: 0.0) }
-        scope.launch { try { Api.post(path, form) } catch (e: Exception) { } }
+        scope.launch { sendPlace(path, f) }
+    }
+
+    // ---------------------------------------------------------------- places: the newest one wins
+    // Every place saved carries when it was saved. One that couldn't reach the PC (no connection) is kept and sent as
+    // soon as the PC can be reached; the PC keeps a newer place from another device rather than take an older one.
+    private fun pendingPlaces(): JSONObject = try { JSONObject(Prefs.str("pending_places", "{}")) } catch (e: Exception) { JSONObject() }
+
+    private suspend fun sendPlace(path: String, f: Map<String, String>) {
+        val key = f["item"] ?: return
+        val ok = try { Api.post(path, f).err().isEmpty() } catch (e: Exception) { false }
+        val p = pendingPlaces()
+        if (ok) { if (p.has(key) && p.getJSONObject(key).optString("at") == f["at"]) p.remove(key) }
+        else p.put(key, JSONObject().put("path", path).put("form", JSONObject(f)))
+        Prefs.put("pending_places", p.toString())
+    }
+
+    /** Sends the places kept while the PC couldn't be reached (the newest one for each). */
+    suspend fun flushPlaces() {
+        val p = pendingPlaces()
+        for (k in p.keys().asSequence().toList()) {
+            val e = p.optJSONObject(k) ?: continue
+            val form = e.optJSONObject("form") ?: continue
+            val m = form.keys().asSequence().associateWith { form.optString(it) }
+            val ok = try { Api.post(e.s("path"), m).err().isEmpty() } catch (x: Exception) { false }
+            if (!ok) return                                           // still can't reach it: next time
+            val now = pendingPlaces(); if (now.optJSONObject(k)?.optJSONObject("form")?.optString("at") == form.optString("at")) now.remove(k)
+            Prefs.put("pending_places", now.toString())
+        }
+    }
+
+    /** A download started from the phone's own place: if the PC's place is newer (another device), go there; if the
+     *  phone's is newer, tell the PC. Only when she hasn't moved since it started. */
+    private suspend fun reconcile(kind: String, id: String, localPos: Double, localAtMs: Long, startedAt: Double,
+                                  stillHere: () -> Boolean, now: () -> Double, seek: (Double) -> Unit, savePath: String,
+                                  extra: Map<String, String> = emptyMap()) {
+        val d = try { Api.get("/api/play/place?kind=$kind&id=${enc(id)}") } catch (e: Exception) { return }
+        if (d.err().isNotEmpty() || !stillHere()) return
+        val serverAt = d.d("at"); val serverPos = d.d("pos"); val localAt = localAtMs / 1000.0
+        if (serverAt > localAt + 5 && !d.b("finished") && abs(serverPos - localPos) > 30 && abs(now() - startedAt) < 20) {
+            val to = max(0.0, serverPos - 2)
+            seek(to); say("Carrying on from ${fmtTime(to)}, where it was left on another device more recently.")
+        } else if (localAt > serverAt + 5 && localAtMs > 0 && abs(serverPos - localPos) > 5) {
+            sendPlace(savePath, mapOf("item" to id, "pos" to localPos.toString(), "at" to localAt.toString()) + extra)
+        }
     }
 
     fun stopPhone(quiet: Boolean) {

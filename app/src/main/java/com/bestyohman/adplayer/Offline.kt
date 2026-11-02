@@ -42,13 +42,14 @@ object Offline {
         val pos: Double = 0.0,          // where it was left, kept on the phone too
         val error: String = "",
         val retries: Int = 0,
-        val quality: String = "original" // video: original, medium or small
+        val quality: String = "original", // video: original, medium or small
+        val posAt: Long = 0             // when it was at pos (ms) - the newest place wins
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("id", id); put("kind", kind); put("title", title); put("state", state); put("progress", progress)
             put("bytes", bytes); put("runtime", runtime); put("itemType", itemType); put("hasNext", hasNext); put("job", job)
             put("url", url); put("file", file); put("dm", dm); put("author", author); put("duration", duration)
-            put("chapters", chapters); put("parts", parts); put("pos", pos); put("error", error); put("retries", retries); put("quality", quality)
+            put("chapters", chapters); put("parts", parts); put("pos", pos); put("error", error); put("retries", retries); put("quality", quality); put("posAt", posAt)
         }
 
         companion object {
@@ -56,7 +57,7 @@ object Offline {
                 j.s("id"), j.s("kind"), j.s("title"), j.s("state"), j.i("progress"), j.optLong("bytes"), j.d("runtime"),
                 j.s("itemType"), j.b("hasNext"), j.s("job"), j.s("url"), j.s("file"), j.optLong("dm", -1), j.s("author"),
                 j.d("duration"), j.s("chapters").ifEmpty { "[]" }, j.s("parts").ifEmpty { "[]" }, j.d("pos"), j.s("error"), j.i("retries"),
-                j.s("quality").ifEmpty { "original" }
+                j.s("quality").ifEmpty { "original" }, j.optLong("posAt", 0L)
             )
         }
 
@@ -121,7 +122,7 @@ object Offline {
     /** Remembers where it was left (on the phone, for playing with no connection). */
     fun notePos(id: String, pos: Double) {
         val i = items.indexOfFirst { it.id == id && it.done }
-        if (i >= 0 && kotlin.math.abs(items[i].pos - pos) > 5) { items[i] = items[i].copy(pos = pos); save() }
+        if (i >= 0 && kotlin.math.abs(items[i].pos - pos) > 5) { items[i] = items[i].copy(pos = pos, posAt = System.currentTimeMillis()); save() }
     }
 
     private fun enqueue(url: String, dest: File, title: String): Long {
