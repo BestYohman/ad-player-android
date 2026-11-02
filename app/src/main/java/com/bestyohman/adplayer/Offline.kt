@@ -335,6 +335,8 @@ object Offline {
                             }
                             // started at the other address (home Wi-Fi / away): that one can't be reached from here
                             val uri = c.getString(c.getColumnIndexOrThrow(DownloadManager.COLUMN_URI)) ?: ""
+                            val host = try { Uri.parse(uri).host ?: "" } catch (e: Exception) { "" }
+                            if (host.isNotEmpty()) waiting += " ($host)"
                             if (uri.isNotEmpty() && !uri.startsWith(Api.base())) relinkNeeded = true
                         }
                         if (st == DownloadManager.STATUS_PENDING && waiting.isEmpty()) waiting = "Waiting to start"
