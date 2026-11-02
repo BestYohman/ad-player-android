@@ -88,6 +88,7 @@ sleep 2
 open "kind=downloads"
 shot 14_downloads 8
 shot 14b_downloads_later 30
+shot 14c_downloads_done 25
 open "kind=books"
 shot 15_books 4
 tapon "The Bank Job"
