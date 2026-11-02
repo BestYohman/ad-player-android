@@ -71,6 +71,8 @@ def info(i):
             return d
     return {"error": "Not found"}
 
+DL = {}
+
 def route(path, q):
     if path == "/api/play/books/book":
         return {"id": "b1", "title": "The Bank Job", "author": "Ben Writer", "narrator": "Sam Voice", "duration": 120.0, "position": 50.0,
@@ -78,6 +80,13 @@ def route(path, q):
                 "description": "A heist goes wrong in the most polite way possible, and one man in the queue is sure he knows who did it. " * 3,
                 "chapters": [{"start": 0, "end": 40, "title": "The Queue"}, {"start": 40, "end": 80, "title": "The Vault"}, {"start": 80, "end": 120, "title": "The Parrot"}],
                 "tracks": [{"start": 0, "duration": 60, "url": "/media/book.mp3"}, {"start": 60, "duration": 60, "url": "/media/book.mp3"}]}
+    if path == "/api/play/download/prepare" or path.startswith("/api/play/download/job/"):
+        n = DL.setdefault("n", 0); DL["n"] = n + 1
+        if n < 12:
+            return {"id": "dl1", "state": "working", "progress": min(99, n * 8), "method": "gpu", "eta": max(0, 90 - n * 8),
+                    "speed_x": 4.2, "made_bytes": n * 31_000_000, "est_bytes": 420_000_000, "title": "Moonlit Magic 2 (2026)", "kind": "video"}
+        return {"id": "dl1", "state": "ready", "progress": 100, "url": "/media/test.mp4", "bytes": 826788, "runtime_ticks": 78000000000}
+    if path in ("/api/play/download/done", "/api/play/download/cancel"): return {"message": "OK"}
     if path == "/api/play/login": return {"token": "tok", "message": "Signed in as Yoh."}
     if path == "/api/play/me": return {"signed_in": True, "name": "Yoh", "role": "watch", "server_id": "mock", "home_urls": []}
     if path == "/api/play/devices": return {"devices": [], "other": []}

@@ -79,8 +79,15 @@ sleep 2
 tapon EditText
 adb shell input text "chase"
 shot 13_search 4
+open "kind=item&id=m_magic&extra=Movie&title=Moonlit%20Magic%202"
+sleep 4
+tapon Download
+sleep 2
+tapon "The video - small"
+sleep 2
 open "kind=downloads"
-shot 14_downloads 3
+shot 14_downloads 8
+shot 14b_downloads_later 30
 open "kind=books"
 shot 15_books 4
 tapon "The Bank Job"
