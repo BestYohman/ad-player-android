@@ -443,6 +443,11 @@ fun NowPlaying(st: Engine.St) {
                 Engine.browse = true
                 Engine.openList("books_chapters", st.bookId, st.title.ifEmpty { "Book" } + " chapters")
             }, modifier = Modifier.fillMaxWidth()) { Text("Chapters") }
+            OutlinedButton(onClick = { Engine.addBookmark() }, modifier = Modifier.fillMaxWidth()) { Text("Add a bookmark here") }
+            OutlinedButton(onClick = {
+                Engine.browse = true
+                Engine.openList("books_bookmarks", st.bookId, st.title.ifEmpty { "Book" } + " bookmarks")
+            }, modifier = Modifier.fillMaxWidth()) { Text("Bookmarks") }
             val phone = Engine.isPhone || Engine.tg != null
             val sp = if (Engine.tg != null) Engine.tg!!.last.d("rate").let { if (it > 0) it.toFloat() else 1f } else Prefs.bookSpeed
             if (phone) {
@@ -471,6 +476,7 @@ fun NowPlaying(st: Engine.St) {
 // ------------------------------------------------------------------------------------ the lists
 private fun noneText(kind: String): String = when {
     kind.startsWith("continue") || kind == "books_continue" -> "Nothing in progress."
+    kind == "books_bookmarks" -> "No bookmarks in this book yet. While it plays, Add a bookmark here keeps the place."
     kind.startsWith("favorites") -> "No favorites yet. Use Add to favorites on a show or movie."
     kind == "requests" -> "Nothing asked for yet. Shows and movies without audio description have an Ask for audio description button."
     else -> "Nothing found."
@@ -762,6 +768,14 @@ private fun SimpleRow(item: Item, v: Engine.View) {
         when (item.type) {
             "Request" -> Text("${item.label}: ${item.text}. Asked for on ${item.date}.", Modifier.padding(vertical = 6.dp))
             "BookSeries", "BookAuthor" -> RowButton(item.label + if (item.count > 0) ", ${item.count} book" + (if (item.count == 1) "" else "s") else "") { Engine.openItem(item) }
+            "Bookmark" -> {
+                val lab = "Bookmark: ${item.label}, at ${item.at}" + if (item.j.s("chapter").isNotEmpty() && !item.label.contains(item.j.s("chapter"))) ", in ${item.j.s("chapter")}" else ""
+                RowButton(lab) { Engine.playBookmark(item.book, item.bookTitle, item.start) }
+                OutlinedButton(
+                    onClick = { Engine.removeBookmark(item.book, item.start); Engine.load(false) },
+                    modifier = Modifier.semantics { contentDescription = "Remove the bookmark ${item.label}" }
+                ) { Text("Remove") }
+            }
             "Chapter" -> {
                 val n = (item.id.substringAfter("|").toIntOrNull() ?: 0) + 1
                 val lab = if (Regex("^(chapter|part)\\b", RegexOption.IGNORE_CASE).containsMatchIn(item.label)) item.label else "Chapter $n: ${item.label}"
@@ -785,6 +799,10 @@ private fun SimpleRow(item: Item, v: Engine.View) {
                         onClick = { Engine.push(Engine.View("books_chapters", item.id, "${item.label} chapters")) },
                         modifier = Modifier.semantics { contentDescription = "Chapters of ${item.label}" }
                     ) { Text("Chapters") }
+                    OutlinedButton(
+                        onClick = { Engine.push(Engine.View("books_bookmarks", item.id, "${item.label} bookmarks")) },
+                        modifier = Modifier.semantics { contentDescription = "Bookmarks in ${item.label}" }
+                    ) { Text("Bookmarks") }
                     DownloadButton(item)
                 }
             }

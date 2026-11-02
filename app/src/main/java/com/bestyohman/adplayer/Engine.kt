@@ -834,6 +834,46 @@ object Engine {
         return i
     }
 
+    // ---------------------------------------------------------------- bookmarks (Audiobookshelf's own, each person's)
+    var bookmarks by mutableStateOf(listOf<JSONObject>())
+    var bookmarksFor by mutableStateOf("")
+
+    /** The book playing here or on the TV, and where it is. */
+    fun bookHere(): Pair<String, Double>? {
+        val b = bk
+        if (b != null && b.ready) return b.id to bookPos()
+        val s = tvStatus ?: return null
+        if (!s.b("book") || s.s("book_id").isEmpty()) return null
+        return s.s("book_id") to s.optLong("pos_ticks") / 1e7
+    }
+
+    fun loadBookmarks(bookId: String) = launchSafe {
+        if (bookmarksFor != bookId) { bookmarks = emptyList(); bookmarksFor = bookId }
+        val d = Api.get("/api/play/books/bookmarks?id=${enc(bookId)}")
+        if (d.err().isNotEmpty()) say(d.err()) else if (bookmarksFor == bookId) bookmarks = d.optJSONArray("bookmarks").objs()
+    }
+
+    fun addBookmark() {
+        val (id, pos) = bookHere() ?: run { say("Bookmarks are for an audiobook that's playing."); return }
+        bookmarkCall(id, mapOf("time" to pos.toString()))
+    }
+
+    fun renameBookmark(bookId: String, time: Double, title: String) = bookmarkCall(bookId, mapOf("action" to "rename", "time" to time.toString(), "title" to title))
+    fun removeBookmark(bookId: String, time: Double) = bookmarkCall(bookId, mapOf("action" to "remove", "time" to time.toString()))
+
+    private fun bookmarkCall(bookId: String, f: Map<String, String>) = launchSafe {
+        val d = Api.post("/api/play/books/bookmark", mapOf("item" to bookId) + f)
+        say(d.err().ifEmpty { d.s("message") })
+        if (d.err().isEmpty()) { bookmarksFor = bookId; bookmarks = d.optJSONArray("bookmarks").objs() }
+    }
+
+    /** Go to a bookmark: in the book that's playing, or start the book there. */
+    fun playBookmark(bookId: String, title: String, time: Double) {
+        val b = bk
+        if (b != null && b.ready && b.id == bookId) { seekTo(time); if (!exo.playWhenReady && tg == null) exo.play(); say("Bookmark, ${fmtTime(time)}."); return }
+        bookPlay(Item(JSONObject().put("id", bookId).put("type", "Book").put("label", title)), false, time)
+    }
+
     /** Jump to a place (seconds into the book or video), together or not. */
     fun seekTo(pos: Double) {
         if (tg != null) { tgControl("seek", mapOf("pos" to pos.toString())); return }

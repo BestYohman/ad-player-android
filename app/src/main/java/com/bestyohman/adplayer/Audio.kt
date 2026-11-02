@@ -94,6 +94,7 @@ fun AudioScreen(act: MainActivity) {
     var tint by remember(coverUrl) { mutableStateOf(Color(0xFF3B3B33)) }
     val req = remember(coverUrl, coverFile) { ImageRequest.Builder(ctx).data(coverFile ?: coverUrl).allowHardware(false).build() }
     var sheet by remember { mutableStateOf(false) }
+    var bmSheet by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf("") }
     var menu by remember { mutableStateOf(false) }
 
@@ -217,12 +218,14 @@ fun AudioScreen(act: MainActivity) {
             }
             Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 14.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                 Small(Ic.ListIc, "Chapters", enabled = chs.isNotEmpty()) { sheet = true }
+                if (book) Small(Ic.Bookmark, "Bookmarks") { bmSheet = true }
                 Small(Ic.Speed, "Speed") { dialog = "speed" }
                 Small(Ic.Bedtime, "Sleep timer", tint = if (b?.sleep != null && b.sleep != "off") EGreen else Color.White, enabled = book) { dialog = "sleep" }
                 Small(Ic.Settings, "Settings") { dialog = "settings" }
             }
         }
     }
+    if (bmSheet && b != null) BookmarkSheet(b.id, b.title) { bmSheet = false }
     if (sheet && b != null) {
         val st = rememberModalBottomSheetState(skipPartiallyExpanded = false)
         ModalBottomSheet(onDismissRequest = { sheet = false }, sheetState = st, containerColor = Color(0xFF1C1C1A)) {
@@ -271,5 +274,62 @@ fun AudioScreen(act: MainActivity) {
 private fun Small(icon: ImageVector, label: String, enabled: Boolean = true, tint: Color = Color.White, onTap: () -> Unit) {
     IconButton(onClick = onTap, enabled = enabled, modifier = Modifier.size(52.dp)) {
         Icon(icon, label, tint = if (enabled) tint else Color(0x55FFFFFF), modifier = Modifier.size(32.dp))
+    }
+}
+
+/** A book's bookmarks: add one where it is, jump to one, rename or remove it. */
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BookmarkSheet(bookId: String, title: String, close: () -> Unit) {
+    androidx.compose.runtime.LaunchedEffect(bookId) { Engine.loadBookmarks(bookId) }
+    val st = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var renaming by remember { mutableStateOf<JSONObject?>(null) }
+    val here = Engine.bookHere()?.takeIf { it.first == bookId }
+    ModalBottomSheet(onDismissRequest = close, sheetState = st, containerColor = Color(0xFF1C1C1A)) {
+        LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
+            item {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Bookmarks", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    if (here != null) WhitePill("Add here", Ic.Bookmark, Modifier.height(44.dp)) { Engine.addBookmark() }
+                }
+            }
+            val list = if (Engine.bookmarksFor == bookId) Engine.bookmarks else emptyList()
+            if (list.isEmpty()) item {
+                Text(if (here != null) "None yet - Add here keeps the place it's at now." else "No bookmarks in this book yet.",
+                    color = ESub, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
+            }
+            itemsIndexed(list) { _, m ->
+                var menu by remember { mutableStateOf(false) }
+                Row(
+                    Modifier.fillMaxWidth().clickable { Engine.playBookmark(bookId, title, m.d("time")); close() }
+                        .padding(start = 20.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Ic.Bookmark, null, tint = EGreen, modifier = Modifier.size(22.dp))
+                    Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+                        Text(m.s("title"), color = Color.White, fontSize = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(listOf(m.s("at"), m.s("chapter").takeIf { !m.s("title").contains(it) } ?: "").filter { it.isNotEmpty() }.joinToString(" · "),
+                            color = ESub, fontSize = 14.sp)
+                    }
+                    Box {
+                        IconButton(onClick = { menu = true }) { Icon(Ic.More, "More for the bookmark ${m.s("title")}", tint = Color.White) }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; renaming = m })
+                            DropdownMenuItem(text = { Text("Remove") }, onClick = { menu = false; Engine.removeBookmark(bookId, m.d("time")) })
+                        }
+                    }
+                }
+            }
+        }
+    }
+    renaming?.let { m ->
+        var t by remember(m) { mutableStateOf(m.s("title")) }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { renaming = null },
+            title = { Text("Rename the bookmark") },
+            text = { androidx.compose.material3.OutlinedTextField(t, { t = it }, singleLine = true, label = { Text("Name") }) },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { Engine.renameBookmark(bookId, m.d("time"), t); renaming = null }) { Text("Save") } },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { renaming = null }) { Text("Cancel") } }
+        )
     }
 }

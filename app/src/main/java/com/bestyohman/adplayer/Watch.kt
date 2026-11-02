@@ -1093,6 +1093,7 @@ private fun BookPage(p: Page, openDrawer: () -> Unit) {
     val ls = W.list(p)
     var more by remember { mutableStateOf(false) }
     var castOpen by remember { mutableStateOf(false) }
+    var bmOpen by remember { mutableStateOf(false) }
     val series = bd?.s("series")?.ifEmpty { null } ?: item.series
     val pos = bd?.d("position") ?: 0.0
     val finished = bd?.b("finished") ?: item.finished
@@ -1131,6 +1132,7 @@ private fun BookPage(p: Page, openDrawer: () -> Unit) {
                         Action(if (saved?.done == true) "Downloaded" else if (saved != null) "Downloading" else "Download", Ic.Download,
                             if (saved?.done == true) EGreen else Color.White) { if (saved != null) W.openTab("downloads") else Offline.downloadBook(item) }
                         Action("Start over", Ic.Restart) { Engine.bookPlay(item, false, 0.0) }
+                        Action("Bookmarks", Ic.Bookmark) { bmOpen = true }
                         Box {
                             Action("More", Ic.More) { more = true }
                             DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
@@ -1167,6 +1169,7 @@ private fun BookPage(p: Page, openDrawer: () -> Unit) {
         TopBar("", openDrawer, solid = false)
     }
     if (castOpen) PlayOnDialog { castOpen = false }
+    if (bmOpen) BookmarkSheet(item.id, bd?.s("title")?.ifEmpty { null } ?: item.label) { bmOpen = false }
 }
 
 // ------------------------------------------------------------------------------------------- settings
