@@ -1048,7 +1048,7 @@ object Engine {
     private fun everySecond() {
         tick++
         watchStalls()
-        if (tick % 3 == 0 && Offline.items.any { it.state == "downloading" }) Offline.poll()
+        if (tick % 2 == 0 && Offline.items.any { it.state == "downloading" }) Offline.poll()
         if (mode != Mode.NONE && exo.isPlaying && System.currentTimeMillis() - lastSave > 30_000) savePlace()
         val b = bk
         if (b != null && b.ready && (b.sleepAt > 0 || b.sleepPos >= 0)) {

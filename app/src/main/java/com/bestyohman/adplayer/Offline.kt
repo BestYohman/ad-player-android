@@ -68,7 +68,7 @@ object Offline {
         fun stateText(): String = when (state) {
             "preparing" -> "The PC is getting it ready" + if (progress > 0) ", $progress percent" else ""
             "downloading" -> "Downloading" + if (progress > 0) ", $progress percent" else ""
-            "done" -> "Downloaded" + if (bytes > 0) ", ${"%.1f".format(bytes / 1e9)} GB" else ""
+            "done" -> "Downloaded" + if (bytes > 0) ", ${Offline.size(bytes)}" else ""
             else -> "Didn't download" + if (error.isNotEmpty()) ": $error" else ""
         }
 
@@ -80,6 +80,60 @@ object Offline {
     }
 
     val items = mutableStateListOf<Saved>()
+
+    /** How a download is going right now (not kept): bytes so far, its size, speed, time left, parts. */
+    data class Live(
+        val got: Long = 0, val total: Long = 0, val speed: Double = 0.0, val eta: Long = -1,
+        val partsDone: Int = 0, val parts: Int = 0, val waiting: String = "",
+        val method: String = "", val speedX: Double = 0.0, val made: Long = 0, val est: Long = 0
+    )
+    val live = androidx.compose.runtime.mutableStateMapOf<String, Live>()
+    private val samples = HashMap<String, ArrayDeque<Pair<Long, Long>>>()
+
+    fun size(b: Long): String = when {
+        b >= 1_000_000_000L -> "%.2f GB".format(b / 1e9)
+        b >= 10_000_000L -> "${b / 1_000_000} MB"
+        b >= 1_000_000L -> "%.1f MB".format(b / 1e6)
+        else -> "${maxOf(1L, b / 1000)} KB"
+    }
+
+    fun timeLeft(s: Long): String = when {
+        s < 0 -> ""
+        s < 60 -> "less than a minute left"
+        s < 3600 -> "about ${(s + 30) / 60} minute" + (if ((s + 30) / 60 == 1L) "" else "s") + " left"
+        else -> "about ${s / 3600} hour" + (if (s / 3600 == 1L) "" else "s") + " ${(s % 3600) / 60} minutes left"
+    }
+
+    /** Everything about how it's going, in words: "Downloading, 45 percent: 1.20 GB of 2.62 GB, 3.4 MB a second, about 7 minutes left." */
+    fun detail(s: Saved): List<String> {
+        val l = live[s.kind + s.id]
+        return when (s.state) {
+            "preparing" -> {
+                val how = when (l?.method) {
+                    "gpu" -> "The PC is converting it on the graphics card"
+                    "copy" -> "The PC is copying the video"
+                    "audio" -> "The PC is making the audio file"
+                    else -> "The PC is getting it ready"
+                }
+                val a = how + if (s.progress > 0) ", ${s.progress} percent" else ""
+                val b = mutableListOf<String>()
+                if (l != null && l.made > 0) b.add(size(l.made) + (if (l.est > 0) " of about ${size(l.est)}" else "") + " made")
+                if (l != null && l.speedX > 0) b.add("%.1f times as fast as playing".format(l.speedX))
+                if (l != null && l.eta >= 0) b.add(timeLeft(l.eta))
+                listOf(a) + (if (b.isEmpty()) emptyList() else listOf(b.joinToString(", ")))
+            }
+            "downloading" -> {
+                val a = (if (l?.waiting?.isNotEmpty() == true) l.waiting else "Downloading") + if (s.progress > 0) ", ${s.progress} percent" else ""
+                val b = mutableListOf<String>()
+                if (l != null && l.total > 0) b.add("${size(l.got)} of ${size(l.total)}") else if (l != null && l.got > 0) b.add(size(l.got))
+                if (l != null && l.parts > 1) b.add("part ${minOf(l.partsDone + 1, l.parts)} of ${l.parts}")
+                if (l != null && l.speed > 0) b.add("${size(l.speed.toLong())} a second")
+                if (l != null && l.eta >= 0) b.add(timeLeft(l.eta))
+                listOf(a) + (if (b.isEmpty()) emptyList() else listOf(b.joinToString(", ")))
+            }
+            else -> listOf(s.stateText())
+        }
+    }
     private lateinit var store: File
     private lateinit var dir: File
     private lateinit var dm: DownloadManager
@@ -178,6 +232,8 @@ object Offline {
                     return
                 }
                 update(id, kind) { it.copy(progress = d.i("progress"), job = d.s("id")) }
+                live[kind + id] = Live(method = d.s("method"), speedX = d.d("speed_x"), made = d.optLong("made_bytes"),
+                    est = d.optLong("est_bytes"), eta = if (d.has("eta") && !d.isNull("eta")) d.optLong("eta") else -1)
                 delay(3000)
                 d = Api.get("/api/play/download/job/${d.s("id")}")
             }
@@ -228,7 +284,7 @@ object Offline {
         for (s in items.toList()) {
             if (s.state != "downloading") continue
             val ids = if (s.kind == "book") s.partList.map { it.optLong("dm", -1) } else listOf(s.dm)
-            var got = 0L; var total = 0L; var allDone = true; var failed = false
+            var got = 0L; var total = 0L; var allDone = true; var failed = false; var partsDone = 0; var waiting = ""
             for (id in ids) {
                 if (id < 0) { allDone = false; continue }
                 try {
@@ -237,8 +293,10 @@ object Offline {
                         val st = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
                         got += c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)).coerceAtLeast(0)
                         total += c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)).coerceAtLeast(0)
-                        if (st != DownloadManager.STATUS_SUCCESSFUL) allDone = false
+                        if (st != DownloadManager.STATUS_SUCCESSFUL) allDone = false else partsDone++
                         if (st == DownloadManager.STATUS_FAILED) failed = true
+                        if (st == DownloadManager.STATUS_PAUSED) waiting = "Paused - waiting for a connection"
+                        if (st == DownloadManager.STATUS_PENDING && waiting.isEmpty()) waiting = "Waiting to start"
                     }
                 } catch (e: Exception) { allDone = false }
             }
@@ -252,6 +310,16 @@ object Offline {
                 else -> {
                     val pct = if (total > 0) (got * 100 / total).toInt() else 0
                     if (pct != s.progress) update(s.id, s.kind) { it.copy(progress = pct) }
+                    // speed over the last 15 seconds, and the time left at that speed
+                    val key = s.kind + s.id
+                    val now = System.currentTimeMillis()
+                    val q = samples.getOrPut(key) { ArrayDeque() }
+                    q.addLast(now to got)
+                    while (q.size > 2 && now - q.first().first > 15_000) q.removeFirst()
+                    val (t0, g0) = q.first()
+                    val speed = if (now - t0 > 1500) (got - g0) * 1000.0 / (now - t0) else 0.0
+                    val eta = if (speed > 1000 && total > got) ((total - got) / speed).toLong() else -1L
+                    live[key] = Live(got = got, total = total, speed = speed, eta = eta, partsDone = partsDone, parts = ids.size, waiting = waiting)
                 }
             }
         }

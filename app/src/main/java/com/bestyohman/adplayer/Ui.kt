@@ -527,7 +527,7 @@ fun DownloadRow(s: Offline.Saved) {
     Column(Modifier.fillMaxWidth()) {
         HorizontalDivider()
         Text("${s.title} - ${s.kindText()}", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
-        Text(s.stateText(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(Offline.detail(s).joinToString(". ") + ".", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (s.done) Button(onClick = { Engine.playDownload(s) }, modifier = Modifier.semantics { contentDescription = "Play ${s.title}" }) { Text("Play") }
             OutlinedButton(

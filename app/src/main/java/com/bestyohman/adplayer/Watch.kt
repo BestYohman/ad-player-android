@@ -1037,7 +1037,9 @@ private fun DownloadsPage(p: Page, openDrawer: () -> Unit) {
                     Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                         Text(s.title, color = Color.White, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(s.kindText(), color = ESub, fontSize = 13.sp)
-                        Text(s.stateText(), color = if (s.state == "failed") Color(0xFFFF8A80) else ESub, fontSize = 13.sp)
+                        Offline.detail(s).forEachIndexed { i, line ->
+                            Text(line, color = if (s.state == "failed") Color(0xFFFF8A80) else if (i == 0) Color(0xFFDDDDDD) else ESub, fontSize = 13.sp)
+                        }
                         if (s.state == "preparing" || s.state == "downloading")
                             LinearProgressIndicator(progress = { s.progress / 100f }, color = EGreen, trackColor = ECard,
                                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
