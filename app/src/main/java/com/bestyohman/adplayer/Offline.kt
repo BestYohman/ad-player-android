@@ -85,16 +85,24 @@ object Offline {
     data class Live(
         val got: Long = 0, val total: Long = 0, val speed: Double = 0.0, val eta: Long = -1,
         val partsDone: Int = 0, val parts: Int = 0, val waiting: String = "",
-        val method: String = "", val speedX: Double = 0.0, val made: Long = 0, val est: Long = 0
+        val method: String = "", val speedX: Double = 0.0, val made: Long = 0, val est: Long = 0, val madeRate: Double = 0.0
     )
     val live = androidx.compose.runtime.mutableStateMapOf<String, Live>()
     private val samples = HashMap<String, ArrayDeque<Pair<Long, Long>>>()
+    /** When a download was first seen stuck on the other address (home / away). */
+    private val wrongSince = HashMap<String, Long>()
 
     fun size(b: Long): String = when {
         b >= 1_000_000_000L -> "%.2f GB".format(b / 1e9)
         b >= 10_000_000L -> "${b / 1_000_000} MB"
         b >= 1_000_000L -> "%.1f MB".format(b / 1e6)
         else -> "${maxOf(1L, b / 1000)} KB"
+    }
+
+    /** Bytes a second as megabits a second, like an internet speed: "24.5 megabits a second". */
+    fun mbps(bytesPerSecond: Double): String {
+        val m = bytesPerSecond * 8 / 1e6
+        return (if (m >= 10) "%.0f" else "%.1f").format(m) + " megabits a second"
     }
 
     fun timeLeft(s: Long): String = when {
@@ -118,7 +126,7 @@ object Offline {
                 val a = how + if (s.progress > 0) ", ${s.progress} percent" else ""
                 val b = mutableListOf<String>()
                 if (l != null && l.made > 0) b.add(size(l.made) + (if (l.est > 0) " of about ${size(l.est)}" else "") + " made")
-                if (l != null && l.speedX > 0) b.add("%.1f times as fast as playing".format(l.speedX))
+                if (l != null && l.madeRate > 0) b.add(mbps(l.madeRate))
                 if (l != null && l.eta >= 0) b.add(timeLeft(l.eta))
                 listOf(a) + (if (b.isEmpty()) emptyList() else listOf(b.joinToString(", ")))
             }
@@ -127,7 +135,7 @@ object Offline {
                 val b = mutableListOf<String>()
                 if (l != null && l.total > 0) b.add("${size(l.got)} of ${size(l.total)}") else if (l != null && l.got > 0) b.add(size(l.got))
                 if (l != null && l.parts > 1) b.add("part ${minOf(l.partsDone + 1, l.parts)} of ${l.parts}")
-                if (l != null && l.speed > 0) b.add("${size(l.speed.toLong())} a second")
+                if (l != null && l.speed > 0) b.add(mbps(l.speed))
                 if (l != null && l.eta >= 0) b.add(timeLeft(l.eta))
                 listOf(a) + (if (b.isEmpty()) emptyList() else listOf(b.joinToString(", ")))
             }
@@ -232,7 +240,15 @@ object Offline {
                     return
                 }
                 update(id, kind) { it.copy(progress = d.i("progress"), job = d.s("id")) }
-                live[kind + id] = Live(method = d.s("method"), speedX = d.d("speed_x"), made = d.optLong("made_bytes"),
+                // how fast the PC is making the file, over the last 15 seconds
+                val made = d.optLong("made_bytes")
+                val now = System.currentTimeMillis()
+                val q = samples.getOrPut("prep$kind$id") { ArrayDeque() }
+                if (made > 0) q.addLast(now to made)
+                while (q.size > 2 && now - q.first().first > 15_000) q.removeFirst()
+                val rate = if (q.size >= 2 && q.last().first - q.first().first > 1500)
+                    (q.last().second - q.first().second) * 1000.0 / (q.last().first - q.first().first) else 0.0
+                live[kind + id] = Live(method = d.s("method"), speedX = d.d("speed_x"), made = made, madeRate = rate,
                     est = d.optLong("est_bytes"), eta = if (d.has("eta") && !d.isNull("eta")) d.optLong("eta") else -1)
                 delay(3000)
                 d = Api.get("/api/play/download/job/${d.s("id")}")
@@ -285,6 +301,7 @@ object Offline {
             if (s.state != "downloading") continue
             val ids = if (s.kind == "book") s.partList.map { it.optLong("dm", -1) } else listOf(s.dm)
             var got = 0L; var total = 0L; var allDone = true; var failed = false; var partsDone = 0; var waiting = ""
+            var relinkNeeded = false
             for (id in ids) {
                 if (id < 0) { allDone = false; continue }
                 try {
@@ -295,7 +312,12 @@ object Offline {
                         total += c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)).coerceAtLeast(0)
                         if (st != DownloadManager.STATUS_SUCCESSFUL) allDone = false else partsDone++
                         if (st == DownloadManager.STATUS_FAILED) failed = true
-                        if (st == DownloadManager.STATUS_PAUSED) waiting = "Paused - waiting for a connection"
+                        if (st == DownloadManager.STATUS_PAUSED) {
+                            waiting = "Paused - waiting for a connection"
+                            // started at the other address (home Wi-Fi / away): that one can't be reached from here
+                            val uri = c.getString(c.getColumnIndexOrThrow(DownloadManager.COLUMN_URI)) ?: ""
+                            if (uri.isNotEmpty() && !uri.startsWith(Api.base())) relinkNeeded = true
+                        }
                         if (st == DownloadManager.STATUS_PENDING && waiting.isEmpty()) waiting = "Waiting to start"
                     }
                 } catch (e: Exception) { allDone = false }
@@ -307,7 +329,12 @@ object Offline {
                     if (s.job.isNotEmpty()) tellStopped(s.job, "done")     // the PC deletes its copy now
                 }
                 failed -> retry(s)
+                relinkNeeded && System.currentTimeMillis() - (wrongSince.getOrPut(s.kind + s.id) { System.currentTimeMillis() }) > 20_000 -> {
+                    wrongSince.remove(s.kind + s.id)
+                    retry(s, count = false)          // starts it again at the address that works here
+                }
                 else -> {
+                    if (!relinkNeeded) wrongSince.remove(s.kind + s.id)
                     val pct = if (total > 0) (got * 100 / total).toInt() else 0
                     if (pct != s.progress) update(s.id, s.kind) { it.copy(progress = pct) }
                     // speed over the last 15 seconds, and the time left at that speed
@@ -326,8 +353,8 @@ object Offline {
     }
 
     /** A download that failed (often the address changed - home Wi-Fi / away): start it again at today's address. */
-    private fun retry(s: Saved) {
-        if (s.retries >= 5) { update(s.id, s.kind) { it.copy(state = "failed", error = "the download kept stopping") }; return }
+    private fun retry(s: Saved, count: Boolean = true) {
+        if (count && s.retries >= 5) { update(s.id, s.kind) { it.copy(state = "failed", error = "the download kept stopping") }; return }
         if (s.kind == "book") {
             val parts = JSONArray()
             for (p in s.partList) {
@@ -342,11 +369,11 @@ object Offline {
                 }
                 parts.put(p)
             }
-            update(s.id, s.kind) { it.copy(parts = parts.toString(), retries = it.retries + 1) }
+            update(s.id, s.kind) { it.copy(parts = parts.toString(), retries = it.retries + if (count) 1 else 0) }
         } else {
             try { dm.remove(s.dm) } catch (e: Exception) { }
             val id = enqueue(s.url, File(s.file), s.title)
-            update(s.id, s.kind) { it.copy(dm = id, retries = it.retries + 1) }
+            update(s.id, s.kind) { it.copy(dm = id, retries = it.retries + if (count) 1 else 0) }
         }
     }
 
