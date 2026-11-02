@@ -201,7 +201,7 @@ object Offline {
     private fun enqueue(url: String, dest: File, title: String): Long {
         dest.parentFile?.mkdirs()
         if (dest.exists()) dest.delete()
-        val r = DownloadManager.Request(Uri.parse(Api.url(url)))
+        val r = DownloadManager.Request(Uri.parse(Api.downloadUrl(url)))
             .setTitle(title)
             .setDescription("AD Player")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
@@ -337,7 +337,7 @@ object Offline {
                             val uri = c.getString(c.getColumnIndexOrThrow(DownloadManager.COLUMN_URI)) ?: ""
                             val host = try { Uri.parse(uri).host ?: "" } catch (e: Exception) { "" }
                             if (host.isNotEmpty()) waiting += " ($host)"
-                            if (uri.isNotEmpty() && !uri.startsWith(Api.base())) relinkNeeded = true
+                            if (uri.isNotEmpty() && !uri.startsWith(Api.downloadBase())) relinkNeeded = true
                         }
                         if (st == DownloadManager.STATUS_PENDING && waiting.isEmpty()) waiting = "Waiting to start"
                     }

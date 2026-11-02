@@ -135,6 +135,19 @@ object Api {
 
     fun url(path: String): String = if (path.contains("://")) path else base() + path
 
+    /** Where Android's own downloader fetches from. Android 17 stops it reaching the PC's home-network address
+     *  (192.168...) - only the app itself may - so it always uses the web address when there is one; at home the
+     *  router loops that back to the PC. With only a home address typed in, that is used. */
+    fun downloadBase(): String {
+        val typed = normalize(Prefs.server)
+        val host = try { java.net.URI(typed).host ?: "" } catch (e: Exception) { "" }
+        val local = host.isEmpty() || host.all { it.isDigit() || it == '.' } || !host.contains('.') ||
+            host.endsWith(".local") || host.endsWith(".lan")
+        return if (local) base() else typed
+    }
+
+    fun downloadUrl(path: String): String = if (path.contains("://")) path else downloadBase() + path
+
     suspend fun get(path: String): JSONObject = withContext(Dispatchers.IO) {
         exec(Request.Builder().url(url(path)).header("Cache-Control", "no-cache").build())
     }
