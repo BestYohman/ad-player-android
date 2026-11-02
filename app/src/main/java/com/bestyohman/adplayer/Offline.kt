@@ -91,6 +91,17 @@ object Offline {
     private val samples = HashMap<String, ArrayDeque<Pair<Long, Long>>>()
     /** When a download was first seen stuck on the other address (home / away). */
     private val wrongSince = HashMap<String, Long>()
+    /** Why Android last said a download failed (an HTTP code like 404, or one of DownloadManager's ERROR_ numbers). */
+    private val lastError = HashMap<String, Int>()
+
+    private fun why(code: Int): String = when (code) {
+        DownloadManager.ERROR_INSUFFICIENT_SPACE -> "the phone is out of space"
+        DownloadManager.ERROR_HTTP_DATA_ERROR, DownloadManager.ERROR_CANNOT_RESUME -> "the connection kept dropping"
+        DownloadManager.ERROR_TOO_MANY_REDIRECTS, DownloadManager.ERROR_UNHANDLED_HTTP_CODE -> "the PC answered oddly"
+        DownloadManager.ERROR_FILE_ERROR, DownloadManager.ERROR_DEVICE_NOT_FOUND -> "the phone couldn't save the file"
+        in 400..599 -> "the PC answered with error $code"
+        else -> "the download kept stopping (code $code)"
+    }
 
     fun size(b: Long): String = when {
         b >= 1_000_000_000L -> "%.2f GB".format(b / 1e9)
@@ -99,10 +110,10 @@ object Offline {
         else -> "${maxOf(1L, b / 1000)} KB"
     }
 
-    /** Bytes a second as megabits a second, like an internet speed: "24.5 megabits a second". */
+    /** Bytes a second as megabits a second, like an internet speed: "24 Mbps". */
     fun mbps(bytesPerSecond: Double): String {
         val m = bytesPerSecond * 8 / 1e6
-        return (if (m >= 10) "%.0f" else "%.1f").format(m) + " megabits a second"
+        return (if (m >= 10) "%.0f" else "%.1f").format(m) + " Mbps"
     }
 
     fun timeLeft(s: Long): String = when {
@@ -311,9 +322,17 @@ object Offline {
                         got += c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)).coerceAtLeast(0)
                         total += c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)).coerceAtLeast(0)
                         if (st != DownloadManager.STATUS_SUCCESSFUL) allDone = false else partsDone++
-                        if (st == DownloadManager.STATUS_FAILED) failed = true
+                        if (st == DownloadManager.STATUS_FAILED) {
+                            failed = true
+                            lastError[s.kind + s.id] = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                        }
                         if (st == DownloadManager.STATUS_PAUSED) {
-                            waiting = "Paused - waiting for a connection"
+                            waiting = when (c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))) {
+                                DownloadManager.PAUSED_QUEUED_FOR_WIFI -> "Paused - waiting for Wi-Fi (it's big)"
+                                DownloadManager.PAUSED_WAITING_FOR_NETWORK -> "Paused - waiting for a connection"
+                                DownloadManager.PAUSED_WAITING_TO_RETRY -> "Paused - couldn't reach the PC, trying again soon"
+                                else -> "Paused"
+                            }
                             // started at the other address (home Wi-Fi / away): that one can't be reached from here
                             val uri = c.getString(c.getColumnIndexOrThrow(DownloadManager.COLUMN_URI)) ?: ""
                             if (uri.isNotEmpty() && !uri.startsWith(Api.base())) relinkNeeded = true
@@ -354,7 +373,10 @@ object Offline {
 
     /** A download that failed (often the address changed - home Wi-Fi / away): start it again at today's address. */
     private fun retry(s: Saved, count: Boolean = true) {
-        if (count && s.retries >= 5) { update(s.id, s.kind) { it.copy(state = "failed", error = "the download kept stopping") }; return }
+        if (count && s.retries >= 5) {
+            val code = lastError[s.kind + s.id]
+            update(s.id, s.kind) { it.copy(state = "failed", error = if (code != null) why(code) else "the download kept stopping") }; return
+        }
         if (s.kind == "book") {
             val parts = JSONArray()
             for (p in s.partList) {
