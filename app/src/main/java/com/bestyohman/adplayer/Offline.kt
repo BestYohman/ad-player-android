@@ -17,8 +17,8 @@ import java.io.File
 /**
  * "Download for later": a show, movie or audiobook kept on the phone, so it plays with no connection at all.
  * The PC first makes one file the phone can play (the video with its soundtrack, or just the audio description);
- * Android's own downloader then fetches it in the background (it carries on through a weak signal, shows its
- * progress in the notifications, and keeps going with the app closed).
+ * the app's own downloader (Fetch) then fetches it - from the PC's home address on the home Wi-Fi, the web address
+ * away - carrying on where it stopped, with its progress in the notifications.
  */
 object Offline {
     data class Saved(
@@ -89,20 +89,6 @@ object Offline {
     )
     val live = androidx.compose.runtime.mutableStateMapOf<String, Live>()
     private val samples = HashMap<String, ArrayDeque<Pair<Long, Long>>>()
-    /** When a download was first seen stuck on the other address (home / away). */
-    private val wrongSince = HashMap<String, Long>()
-    /** Why Android last said a download failed (an HTTP code like 404, or one of DownloadManager's ERROR_ numbers). */
-    private val lastError = HashMap<String, Int>()
-
-    private fun why(code: Int): String = when (code) {
-        DownloadManager.ERROR_INSUFFICIENT_SPACE -> "the phone is out of space"
-        DownloadManager.ERROR_HTTP_DATA_ERROR, DownloadManager.ERROR_CANNOT_RESUME -> "the connection kept dropping"
-        DownloadManager.ERROR_TOO_MANY_REDIRECTS, DownloadManager.ERROR_UNHANDLED_HTTP_CODE -> "the PC answered oddly"
-        DownloadManager.ERROR_FILE_ERROR, DownloadManager.ERROR_DEVICE_NOT_FOUND -> "the phone couldn't save the file"
-        in 400..599 -> "the PC answered with error $code"
-        else -> "the download kept stopping (code $code)"
-    }
-
     fun size(b: Long): String = when {
         b >= 1_000_000_000L -> "%.2f GB".format(b / 1e9)
         b >= 10_000_000L -> "${b / 1_000_000} MB"
@@ -155,7 +141,6 @@ object Offline {
     }
     private lateinit var store: File
     private lateinit var dir: File
-    private lateinit var dm: DownloadManager
     private var loaded = false
 
     fun init(c: Context) {
@@ -164,9 +149,27 @@ object Offline {
         val app = c.applicationContext
         store = File(app.filesDir, "offline.json")
         dir = (app.getExternalFilesDir("offline") ?: File(app.filesDir, "offline")).apply { mkdirs() }
-        dm = app.getSystemService(DownloadManager::class.java)
+        Fetch.init(app)
         try {
             if (store.exists()) JSONArray(store.readText()).objs().forEach { items.add(Saved.from(it)) }
+        } catch (e: Exception) { }
+        // downloads Android's own downloader had (before the app fetched them itself): hand them over
+        try {
+            val dm = app.getSystemService(DownloadManager::class.java)
+            for (s in items) if (s.state == "downloading") {
+                val ids = if (s.kind == "book") s.partList.map { it.optLong("dm", -1) to it.s("file") } else listOf(s.dm to s.file)
+                ids.filter { it.first >= 0 }.forEach { (id, f) ->
+                    val ok = try {
+                        dm.query(DownloadManager.Query().setFilterById(id)).use { c ->
+                            c != null && c.moveToFirst() && c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) == DownloadManager.STATUS_SUCCESSFUL
+                        }
+                    } catch (e: Exception) { false }
+                    if (!ok) {
+                        try { dm.remove(id) } catch (e: Exception) { }
+                        try { File(f).delete() } catch (e: Exception) { }             // its half-made file
+                    }
+                }
+            }
         } catch (e: Exception) { }
     }
 
@@ -198,18 +201,12 @@ object Offline {
         if (i >= 0 && kotlin.math.abs(items[i].pos - pos) > 5) { items[i] = items[i].copy(pos = pos, posAt = System.currentTimeMillis()); save() }
     }
 
+    /** Starts fetching [url] (where the PC has it, without the address) into [dest]. */
     private fun enqueue(url: String, dest: File, title: String): Long {
         dest.parentFile?.mkdirs()
         if (dest.exists()) dest.delete()
-        val r = DownloadManager.Request(Uri.parse(Api.downloadUrl(url)))
-            .setTitle(title)
-            .setDescription("AD Player")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
-            .setDestinationUri(Uri.fromFile(dest))
-            .setAllowedOverMetered(true)
-            .setAllowedOverRoaming(true)
-        if (Prefs.token.isNotEmpty()) r.addRequestHeader("X-ADP-Token", Prefs.token)
-        return dm.enqueue(r)
+        Fetch.start(url, dest, title)
+        return -1
     }
 
     // ---------------------------------------------------------------- starting a download
@@ -306,98 +303,62 @@ object Offline {
 
     // ---------------------------------------------------------------- keeping an eye on them
 
-    /** Every few seconds while the app is open: progress, finished, or try again. */
+    /** The files a download is made of: (where the PC has it, where it goes on the phone). */
+    private fun files(s: Saved): List<Pair<String, String>> =
+        if (s.kind == "book") s.partList.map { it.s("url") to it.s("file") } else listOf(s.url to s.file)
+
+    private fun have(f: String): Boolean = File(f).let { it.exists() && it.length() > 1000 }
+
+    /** Every few seconds while the app is open: progress, finished, or failed. */
     fun poll() {
         for (s in items.toList()) {
             if (s.state != "downloading") continue
-            val ids = if (s.kind == "book") s.partList.map { it.optLong("dm", -1) } else listOf(s.dm)
-            var got = 0L; var total = 0L; var allDone = true; var failed = false; var partsDone = 0; var waiting = ""
-            var relinkNeeded = false
-            for (id in ids) {
-                if (id < 0) { allDone = false; continue }
-                try {
-                    dm.query(DownloadManager.Query().setFilterById(id)).use { c ->
-                        if (c == null || !c.moveToFirst()) { failed = true; return@use }
-                        val st = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                        got += c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)).coerceAtLeast(0)
-                        total += c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)).coerceAtLeast(0)
-                        if (st != DownloadManager.STATUS_SUCCESSFUL) allDone = false else partsDone++
-                        if (st == DownloadManager.STATUS_FAILED) {
-                            failed = true
-                            lastError[s.kind + s.id] = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
-                        }
-                        if (st == DownloadManager.STATUS_PAUSED) {
-                            waiting = when (c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))) {
-                                DownloadManager.PAUSED_QUEUED_FOR_WIFI -> "Paused - waiting for Wi-Fi (it's big)"
-                                DownloadManager.PAUSED_WAITING_FOR_NETWORK -> "Paused - waiting for a connection"
-                                DownloadManager.PAUSED_WAITING_TO_RETRY -> "Paused - couldn't reach the PC, trying again soon"
-                                else -> "Paused"
-                            }
-                            // started at the other address (home Wi-Fi / away): that one can't be reached from here
-                            val uri = c.getString(c.getColumnIndexOrThrow(DownloadManager.COLUMN_URI)) ?: ""
-                            val host = try { Uri.parse(uri).host ?: "" } catch (e: Exception) { "" }
-                            if (host.isNotEmpty()) waiting += " ($host)"
-                            if (uri.isNotEmpty() && !uri.startsWith(Api.downloadBase())) relinkNeeded = true
-                        }
-                        if (st == DownloadManager.STATUS_PENDING && waiting.isEmpty()) waiting = "Waiting to start"
+            val fs = files(s)
+            var got = 0L; var total = 0L; var partsDone = 0; var waiting = ""; var failed = ""
+            for ((url, f) in fs) {
+                val st = Fetch.status(f)
+                when {
+                    st == null && have(f) -> { partsDone++; File(f).length().let { got += it; total += it } }
+                    st == null -> Fetch.start(url, File(f), s.title)        // not on its way (the app was closed): carry on
+                    st.done -> { partsDone++; got += st.got; total += st.got }
+                    else -> {
+                        got += st.got; total += if (st.total > 0) st.total else 0
+                        if (st.failed.isNotEmpty()) failed = st.failed
+                        if (st.waiting.isNotEmpty() && waiting.isEmpty()) waiting = st.waiting
                     }
-                } catch (e: Exception) { allDone = false }
+                }
             }
             when {
-                allDone -> {
-                    update(s.id, s.kind) { it.copy(state = "done", progress = 100, bytes = if (total > 0) total else got) }
+                failed.isNotEmpty() -> {
+                    fs.forEach { Fetch.cancel(it.second) }
+                    update(s.id, s.kind) { it.copy(state = "failed", error = failed) }
+                    Engine.say("${s.title} didn't download: $failed.")
+                }
+                partsDone == fs.size -> {
+                    update(s.id, s.kind) { it.copy(state = "done", progress = 100, bytes = total) }
+                    live.remove(s.kind + s.id)
                     Engine.say("${s.title} is downloaded.")
                     if (s.job.isNotEmpty()) tellStopped(s.job, "done")     // the PC deletes its copy now
                 }
-                failed -> retry(s)
-                relinkNeeded && System.currentTimeMillis() - (wrongSince.getOrPut(s.kind + s.id) { System.currentTimeMillis() }) > 20_000 -> {
-                    wrongSince.remove(s.kind + s.id)
-                    retry(s, count = false)          // starts it again at the address that works here
-                }
                 else -> {
-                    if (!relinkNeeded) wrongSince.remove(s.kind + s.id)
-                    val pct = if (total > 0) (got * 100 / total).toInt() else 0
-                    if (pct != s.progress) update(s.id, s.kind) { it.copy(progress = pct) }
+                    // a book's later parts aren't sized until they start: count those at the book's average so far
+                    val pct = if (total > 0) (got * 100 / total).toInt().coerceAtMost(99) else 0
+                    val shown = if (fs.size > 1) ((partsDone * 100 + pct) / fs.size).coerceAtMost(99) else pct
+                    if (shown != s.progress) update(s.id, s.kind) { it.copy(progress = shown) }
                     // speed over the last 15 seconds, and the time left at that speed
                     val key = s.kind + s.id
                     val now = System.currentTimeMillis()
                     val q = samples.getOrPut(key) { ArrayDeque() }
+                    if (q.isNotEmpty() && got < q.last().second) q.clear()          // started a file again
                     q.addLast(now to got)
                     while (q.size > 2 && now - q.first().first > 15_000) q.removeFirst()
                     val (t0, g0) = q.first()
                     val speed = if (now - t0 > 1500) (got - g0) * 1000.0 / (now - t0) else 0.0
-                    val eta = if (speed > 1000 && total > got) ((total - got) / speed).toLong() else -1L
-                    live[key] = Live(got = got, total = total, speed = speed, eta = eta, partsDone = partsDone, parts = ids.size, waiting = waiting)
+                    val eta = if (speed > 1000 && total > got && fs.size == 1) ((total - got) / speed).toLong() else -1L
+                    live[key] = Live(got = got, total = if (fs.size == 1) total else 0, speed = speed, eta = eta,
+                        partsDone = partsDone, parts = fs.size, waiting = waiting)
                 }
             }
-        }
-    }
-
-    /** A download that failed (often the address changed - home Wi-Fi / away): start it again at today's address. */
-    private fun retry(s: Saved, count: Boolean = true) {
-        if (count && s.retries >= 5) {
-            val code = lastError[s.kind + s.id]
-            update(s.id, s.kind) { it.copy(state = "failed", error = if (code != null) why(code) else "the download kept stopping") }; return
-        }
-        if (s.kind == "book") {
-            val parts = JSONArray()
-            for (p in s.partList) {
-                val ok = try {
-                    dm.query(DownloadManager.Query().setFilterById(p.optLong("dm", -1))).use { c ->
-                        c != null && c.moveToFirst() && c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) == DownloadManager.STATUS_SUCCESSFUL
-                    }
-                } catch (e: Exception) { false }
-                if (!ok) {
-                    try { dm.remove(p.optLong("dm", -1)) } catch (e: Exception) { }
-                    p.put("dm", enqueue(p.s("url"), File(p.s("file")), s.title))
-                }
-                parts.put(p)
-            }
-            update(s.id, s.kind) { it.copy(parts = parts.toString(), retries = it.retries + if (count) 1 else 0) }
-        } else {
-            try { dm.remove(s.dm) } catch (e: Exception) { }
-            val id = enqueue(s.url, File(s.file), s.title)
-            update(s.id, s.kind) { it.copy(dm = id, retries = it.retries + if (count) 1 else 0) }
         }
     }
 
@@ -420,9 +381,7 @@ object Offline {
     fun remove(s: Saved) {
         // still on its way (the PC making it, or the phone fetching it): the PC stops too and clears its copy
         if (!s.done && s.kind != "book" && s.job.isNotEmpty()) tellStopped(s.job)
-        try {
-            if (s.kind == "book") s.partList.forEach { p -> dm.remove(p.optLong("dm", -1)) } else if (s.dm >= 0) dm.remove(s.dm)
-        } catch (e: Exception) { }
+        files(s).forEach { Fetch.cancel(it.second) }
         try { File(s.file).let { if (it.isDirectory) it.deleteRecursively() else it.delete() } } catch (e: Exception) { }
         items.removeAll { it.id == s.id && it.kind == s.kind }
         save()

@@ -623,6 +623,7 @@ object Engine {
         onMobileData = mobile
         scope.launch { delay(3000); flushPlaces() }
         try { Api.http.connectionPool.evictAll() } catch (e: Exception) { }
+        Fetch.networkChanged()
         recheckAddress()
     }
 
@@ -637,6 +638,7 @@ object Engine {
             val pick = Api.chooseAddress(!onMobileData)
             if (pick != old) {
                 Api.active = pick
+                Fetch.networkChanged()                    // downloads carry on at the new address straight away
                 moveMedia(old, pick)
                 if (screen == "server" && bootError.isNotEmpty()) boot()
             }
