@@ -95,6 +95,10 @@ tapon "The Bank Job"
 shot 15b_book_page 4
 tapon Resume
 shot 15c_audio_player 6
+# what the car and lock screen are told (title, the bar, the buttons)
+adb shell dumpsys media_session > shots/media_session.txt 2>&1 || true
+sleep 45
+adb shell dumpsys media_session > shots/media_session_later.txt 2>&1 || true
 adb shell input keyevent 4
 sleep 1
 open "kind=item&id=e1&extra=Episode&title=The%20Race%20Begins"
