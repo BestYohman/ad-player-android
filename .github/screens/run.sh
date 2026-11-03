@@ -99,6 +99,10 @@ shot 15c_audio_player 6
 adb shell dumpsys media_session > shots/media_session.txt 2>&1 || true
 sleep 45
 adb shell dumpsys media_session > shots/media_session_later.txt 2>&1 || true
+adb shell cmd media_session dispatch pause >/dev/null 2>&1 || adb shell input keyevent 127
+sleep 4
+adb shell dumpsys media_session > shots/media_session_paused.txt 2>&1 || true
+adb shell cmd media_session dispatch play >/dev/null 2>&1 || adb shell input keyevent 126
 adb shell input keyevent 4
 sleep 1
 open "kind=item&id=e1&extra=Episode&title=The%20Race%20Begins"

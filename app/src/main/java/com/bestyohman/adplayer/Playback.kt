@@ -88,18 +88,20 @@ class PatientPolicy : DefaultLoadErrorHandlingPolicy(Int.MAX_VALUE) {
     }
 }
 
-/** The car's (and lock screen's) extra buttons: 30 seconds back and forward, and a bookmark (books only). */
+/** The car's (and lock screen's) extra buttons: 30 seconds back and forward, stop, and a bookmark (books only). */
 object CarButtons {
     val back30 = SessionCommand("adp.back30", Bundle.EMPTY)
     val fwd30 = SessionCommand("adp.fwd30", Bundle.EMPTY)
     val bookmark = SessionCommand("adp.bookmark", Bundle.EMPTY)
-    val all = listOf(back30, fwd30, bookmark)
+    val stop = SessionCommand("adp.stop", Bundle.EMPTY)
+    val all = listOf(back30, fwd30, stop, bookmark)
 
     @OptIn(UnstableApi::class)
     fun layout(book: Boolean): List<CommandButton> {
         val b = mutableListOf(
             CommandButton.Builder().setDisplayName("Back 30 seconds").setIconResId(R.drawable.ic_back30).setSessionCommand(back30).build(),
-            CommandButton.Builder().setDisplayName("Forward 30 seconds").setIconResId(R.drawable.ic_fwd30).setSessionCommand(fwd30).build()
+            CommandButton.Builder().setDisplayName("Forward 30 seconds").setIconResId(R.drawable.ic_fwd30).setSessionCommand(fwd30).build(),
+            CommandButton.Builder().setDisplayName("Stop").setIconResId(R.drawable.ic_stop).setSessionCommand(stop).build()
         )
         if (book) b.add(CommandButton.Builder().setDisplayName("Add a bookmark").setIconResId(R.drawable.ic_bookmark_add).setSessionCommand(bookmark).build())
         return b
@@ -111,6 +113,7 @@ object CarButtons {
             back30.customAction -> Engine.cmd("back30")
             fwd30.customAction -> Engine.cmd("fwd30")
             bookmark.customAction -> Engine.addBookmark()          // named by the PC: the chapter and the time
+            stop.customAction -> Engine.cmd("stop")                // saves the place first, like the app's Stop
             else -> return false
         }
         return true
@@ -154,15 +157,14 @@ class SessionPlayer(p: Player) : ForwardingPlayer(p) {
         val c = chap() ?: return base
         val b = Engine.bk ?: return base
         val name = c.title.trim()
-        val title = when {
+        val chapter = when {
             name.isEmpty() -> "Chapter ${c.i + 1} of ${c.n}"
             Regex("^(chapter|ch\\.?|part)\\s*\\d+", RegexOption.IGNORE_CASE).containsMatchIn(name) -> "$name (${c.i + 1} of ${c.n})"
             else -> "Chapter ${c.i + 1} of ${c.n}: $name"
         }
-        val played = "${short(Engine.bookPos())} of ${short(b.duration)} played"
-        return base.buildUpon().setTitle(title).setDisplayTitle(title)
-            .setArtist("$played · ${b.title}").setSubtitle("$played · ${b.title}").setAlbumTitle(b.title)
-            .setAlbumArtist(b.author).build()
+        val line = "$chapter · ${short(Engine.bookPos())} of ${short(b.duration)} played"
+        return base.buildUpon().setTitle(b.title).setDisplayTitle(b.title)
+            .setArtist(line).setSubtitle(line).setAlbumTitle(b.title).setAlbumArtist(b.author).build()
     }
 
     /** Short for a car screen: "2h 13m", "41m". */
@@ -184,20 +186,10 @@ class SessionPlayer(p: Player) : ForwardingPlayer(p) {
     }
 
     // the car and lock screen are told when the chapter (or the minute played) changes, so they show it
-    // (each listener gets this player's own idea of the details - the chapter - also when the underlying player says
-    // its details changed)
-    private val listeners = LinkedHashMap<Player.Listener, Player.Listener>()
-    override fun addListener(listener: Player.Listener) {
-        val w = object : Player.Listener by listener {
-            override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) = listener.onMediaMetadataChanged(this@SessionPlayer.mediaMetadata)
-        }
-        synchronized(listeners) { listeners[listener] = w }
-        super.addListener(w)
-    }
-    override fun removeListener(listener: Player.Listener) {
-        val w = synchronized(listeners) { listeners.remove(listener) } ?: listener
-        super.removeListener(w)
-    }
+    // the listeners themselves, to tell them when the chapter changes (they get everything else from the player as usual)
+    private val listeners = LinkedHashSet<Player.Listener>()
+    override fun addListener(listener: Player.Listener) { synchronized(listeners) { listeners.add(listener) }; super.addListener(listener) }
+    override fun removeListener(listener: Player.Listener) { synchronized(listeners) { listeners.remove(listener) }; super.removeListener(listener) }
     private val ticker = Handler(Looper.getMainLooper())
     private var lastKey = ""
     private var lastBook: Boolean? = null
@@ -205,12 +197,12 @@ class SessionPlayer(p: Player) : ForwardingPlayer(p) {
         override fun run() {
             try {
                 val c = chap()
-                val key = if (c == null) "" else "${Engine.bk?.id}|${c.i}|${(Engine.bookPos() / 60).toInt()}"
+                val key = if (c == null) "" else "${Engine.bk?.id}|${c.i}|${super@SessionPlayer.getCurrentMediaItemIndex()}|${(Engine.bookPos() / 60).toInt()}"
                 if (key != lastKey) {
                     val chapterChanged = key.substringBeforeLast('|') != lastKey.substringBeforeLast('|')
                     lastKey = key
                     val mm = mediaMetadata
-                    val ls = synchronized(listeners) { listeners.keys.toList() }
+                    val ls = synchronized(listeners) { listeners.toList() }
                     ls.forEach { it.onMediaMetadataChanged(mm) }
                     if (chapterChanged) {
                         // the bar starts again for the new chapter
