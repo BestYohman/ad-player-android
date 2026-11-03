@@ -159,10 +159,16 @@ class SessionPlayer(p: Player) : ForwardingPlayer(p) {
             Regex("^(chapter|ch\\.?|part)\\s*\\d+", RegexOption.IGNORE_CASE).containsMatchIn(name) -> "$name (${c.i + 1} of ${c.n})"
             else -> "Chapter ${c.i + 1} of ${c.n}: $name"
         }
-        val played = "${fmtTime(Engine.bookPos())} of ${fmtTime(b.duration)}"
+        val played = "${short(Engine.bookPos())} of ${short(b.duration)} played"
         return base.buildUpon().setTitle(title).setDisplayTitle(title)
             .setArtist("$played · ${b.title}").setSubtitle("$played · ${b.title}").setAlbumTitle(b.title)
             .setAlbumArtist(b.author).build()
+    }
+
+    /** Short for a car screen: "2h 13m", "41m". */
+    private fun short(sec: Double): String {
+        val t = max(0, sec.toInt()); val h = t / 3600; val m = t % 3600 / 60
+        return if (h > 0) "${h}h ${m}m" else "${m}m"
     }
 
     // the car's bar is the chapter: a place on it is a place in this chapter
