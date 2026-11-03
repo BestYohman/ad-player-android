@@ -9,6 +9,9 @@ import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
+import android.os.Bundle
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -35,6 +38,19 @@ class CarLibrary : MediaLibrarySession.Callback {
                     .setArtworkUri(art)
                     .setMediaType(if (book) MediaMetadata.MEDIA_TYPE_AUDIO_BOOK else MediaMetadata.MEDIA_TYPE_TV_SHOW).build()
             ).build()
+
+    /** The car (and lock screen) may use the extra buttons: 30 seconds back and forward, and a bookmark. */
+    override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
+        val cmds = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
+        CarButtons.all.forEach { cmds.add(it) }
+        return MediaSession.ConnectionResult.AcceptedResultBuilder(session).setAvailableSessionCommands(cmds.build())
+            .setCustomLayout(CarButtons.layout(Engine.mode == Engine.Mode.BOOK)).build()
+    }
+
+    override fun onCustomCommand(
+        session: MediaSession, controller: MediaSession.ControllerInfo, customCommand: SessionCommand, args: Bundle
+    ): ListenableFuture<SessionResult> =
+        Futures.immediateFuture(SessionResult(if (CarButtons.press(customCommand.customAction)) SessionResult.RESULT_SUCCESS else SessionResult.RESULT_ERROR_NOT_SUPPORTED))
 
     override fun onGetLibraryRoot(
         session: MediaLibrarySession, browser: MediaSession.ControllerInfo, params: LibraryParams?
