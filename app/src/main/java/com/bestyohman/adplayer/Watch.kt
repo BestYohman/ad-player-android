@@ -398,9 +398,10 @@ private fun Drawer(close: () -> Unit) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             entry("Home", Ic.Home) { W.openTab("home") }
             libs.forEach { l ->
-                entry(l.s("name"), if (l.s("type") == "tvshows") Ic.Tv else Ic.Movie) { W.openTab("lib", Page("library", l.s("id"), l.s("name"))) }
+                if (l.s("type") == "books") entry("Audiobooks", Ic.Book) { W.openTab("books", Page("books")) }   // the PC lists it with the libraries
+                else entry(l.s("name"), if (l.s("type") == "tvshows") Ic.Tv else Ic.Movie) { W.openTab("lib", Page("library", l.s("id"), l.s("name"))) }
             }
-            entry("Audiobooks", Ic.Book) { W.openTab("books", Page("books")) }
+            if (home == null) entry("Audiobooks", Ic.Book) { W.openTab("books", Page("books")) }        // not loaded yet
             entry("Favorites", Ic.HeartFull) { W.openTab("home", Page("favorites")) }
             entry("Downloads", Ic.Download) { W.openTab("downloads") }
             entry("Without audio description", Ic.Ear) { W.openTab("lib", Page("list", "noad", "Without audio description")) }

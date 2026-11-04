@@ -2,6 +2,9 @@
 
 Each version below is a release on GitHub (Releases, "v1.8.0" and so on). The newest is also "AD Player (latest)".
 
+## 1.8.1 - 2026-11-04
+- The side menu showed Audiobooks twice; now once (and not at all when Audiobooks is hidden on the PC).
+
 ## 1.8.0 - 2026-11-04
 - Movies and TV shows: **Sort** (title, date added, date played, release date, year, runtime, critic rating, community rating, parental rating, plays, random - tap again to flip the order) and **Filter** (played / unplayed / in progress, favorites, has audio description, genre, parental rating, year). Each library remembers its own.
 - Home: **Audiobooks** under My Media, and a **Latest Audiobooks** row.
