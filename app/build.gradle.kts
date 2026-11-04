@@ -5,6 +5,8 @@ plugins {
 }
 
 val build = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+// the version people see (VERSION at the top of the project; what changed is in CHANGELOG.md)
+val appVersion = rootProject.file("VERSION").readText().trim()
 
 android {
     namespace = "com.bestyohman.adplayer"
@@ -14,7 +16,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = build
-        versionName = "1.0.$build"
+        versionName = appVersion
     }
     signingConfigs {
         // A fixed key, so each new build installs over the last one (settings and sign-in are kept).
