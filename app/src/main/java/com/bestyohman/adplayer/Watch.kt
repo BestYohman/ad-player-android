@@ -522,6 +522,27 @@ private fun OfflineNote() {
     }
 }
 
+/** "Version 1.9.0 is ready": what's new, and Install. */
+@Composable
+fun UpdateCard() {
+    if (Update.available.isEmpty()) return
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var more by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF1E2A1E)).padding(14.dp)) {
+        Text("Version ${Update.available} is ready", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text("You have ${Update.mine}.", color = ESub, fontSize = 14.sp)
+        if (more) Text(Update.notes, color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+        if (Update.message.isNotEmpty()) Text(Update.message, color = Color(0xFFFFB74D), fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (Update.progress >= 0) Text("Downloading, ${Update.progress} percent…", color = Color.White, fontSize = 15.sp)
+            else {
+                WhitePill("Install", null, Modifier) { Engine.scope.launch { Update.install(ctx) } }
+                WhitePill(if (more) "Less" else "What's new", null, Modifier, dark = true) { more = !more }
+            }
+        }
+    }
+}
+
 @Composable
 private fun InviteCards() {
     if (Engine.invites.isEmpty() || Engine.tg != null) return
@@ -585,6 +606,7 @@ private fun HomePage(p: Page, favorites: Boolean, openDrawer: () -> Unit) {
             }
             item { OfflineNote() }
             item { InviteCards() }
+            item { UpdateCard() }
             if (favorites) {
                 val list = fav?.itemList()
                 if (list == null) item { Loading(ferr) }
@@ -1212,6 +1234,26 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
                 row("Headphone delay", Engine.delays.firstOrNull { it.first == Engine.headphoneDelay }?.second ?: Engine.headphoneDelay, Ic.Headphones) { dOpen = true }
             }
             item { row("Video quality", Engine.qualityLabel(), Ic.Settings) { qOpen = true } }
+            item {
+                var on by remember { mutableStateOf(Prefs.str("dl_remove_done") == "1") }
+                row("Remove downloads once finished", "A downloaded episode, movie or book is deleted from the phone when it has played to the end.", Ic.Download,
+                    trailing = { Switch(checked = on, onCheckedChange = { on = it; Prefs.put("dl_remove_done", if (it) "1" else "") }) }) {
+                    on = !on; Prefs.put("dl_remove_done", if (on) "1" else "")
+                }
+            }
+            item {
+                var on by remember { mutableStateOf(Prefs.str("dl_next_wifi") == "1") }
+                row("Download the next episode on Wi-Fi", "When a downloaded episode ends, the next one is downloaded (on Wi-Fi only).", Ic.Download,
+                    trailing = { Switch(checked = on, onCheckedChange = { on = it; Prefs.put("dl_next_wifi", if (it) "1" else "") }) }) {
+                    on = !on; Prefs.put("dl_next_wifi", if (on) "1" else "")
+                }
+            }
+            item { HorizontalDivider(color = Color(0xFF2A2A2A)) }
+            item {
+                row("App version ${Update.mine}", Update.message.ifEmpty { if (Update.available.isNotEmpty()) "Version ${Update.available} is ready - see Home" else "Check for a new version" },
+                    Ic.Download) { Engine.scope.launch { Update.check(now = true) } }
+            }
+            item { UpdateCard() }
             item { HorizontalDivider(color = Color(0xFF2A2A2A)) }
             item {
                 row("Signed in as ${Engine.me?.s("name") ?: ""}",

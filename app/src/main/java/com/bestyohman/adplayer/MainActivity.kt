@@ -39,6 +39,8 @@ class MainActivity : ComponentActivity() {
         Img.init(applicationContext)
         Downloads.init(applicationContext)
         Offline.init(applicationContext)
+        Update.init(applicationContext)
+        Engine.scope.launch { Update.check() }                  // a newer version on GitHub? (at most every 6 hours)
         watchNetwork()
         Engine.announcer = { t ->
             @Suppress("DEPRECATION")

@@ -1010,6 +1010,16 @@ object Engine {
                 val item = loc?.item ?: vd?.item ?: return
                 val title = loc?.title ?: vd?.title ?: ""
                 val more = loc?.hasNext ?: vd?.hasNext ?: false
+                // a download that has played to the end: maybe fetch the next one (on Wi-Fi), maybe remove this one
+                val kind = if (video) "video" else "audio"
+                val saved = Offline.done(item, kind)
+                if (saved != null) {
+                    if (more && Prefs.str("dl_next_wifi") == "1" && !onMobileData) launchSafe {
+                        val nx = Api.get("/api/play/listen/next?item=${enc(item)}").optJSONObject("item")
+                        if (nx != null && Offline.find(Item(nx).id, kind) == null) Offline.download(Item(nx), kind, saved.quality)
+                    }
+                    if (Prefs.str("dl_remove_done") == "1") scope.launch { delay(2000); Offline.remove(saved) }
+                }
                 if (!more) { stopPhone(true); say("Finished $title."); return }
                 launchSafe {
                     val d = Api.get("/api/play/listen/next?item=${enc(item)}")
@@ -1020,7 +1030,11 @@ object Engine {
                     if (video) videoStart(n.id, n.label, false) else listenStart(n.id, n.label, false)
                 }
             }
-            Mode.BOOK -> { val t = bk?.title ?: ""; savePlace(true); stopPhone(true); say("Finished $t.") }
+            Mode.BOOK -> {
+                val b = bk; val t = b?.title ?: ""; savePlace(true); stopPhone(true); say("Finished $t.")
+                val saved = b?.let { Offline.done(it.id, "book") }
+                if (saved != null && Prefs.str("dl_remove_done") == "1") scope.launch { delay(2000); Offline.remove(saved) }
+            }
             else -> {}
         }
     }

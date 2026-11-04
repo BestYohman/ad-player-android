@@ -2,6 +2,10 @@
 
 Each version below is a release on GitHub (Releases, "v1.8.0" and so on). The newest is also "AD Player (latest)".
 
+## 1.9.0 - 2026-11-04
+- **Updates:** when a new version is on GitHub, Home shows "Version … is ready" with what's new and an **Install** button (the phone asks once to allow installing from AD Player). Settings shows the app's version and can check by hand.
+- **Downloads tidy themselves** (Settings, both off to start): **Remove downloads once finished**, and **Download the next episode on Wi-Fi** when a downloaded episode ends.
+
 ## 1.8.1 - 2026-11-04
 - The side menu showed Audiobooks twice; now once (and not at all when Audiobooks is hidden on the PC).
 
