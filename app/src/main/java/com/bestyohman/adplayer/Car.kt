@@ -73,17 +73,35 @@ class CarLibrary : MediaLibrarySession.Callback {
     private suspend fun list(kind: String, parent: String = ""): List<Item> =
         Api.get("/api/play/list?kind=$kind&device=__local&parent=${enc(parent)}").optJSONArray("items").objs().map { Item(it) }
 
+    /** A book: its cover, the author, and where you are in it. */
+    private fun bookItem(it: Item): MediaItem =
+        playable("book:${it.id}", it.label, listOf(it.j.optString("author"), if (it.resume.isNotEmpty()) "at ${it.resume}" else "")
+            .filter { s -> s.isNotEmpty() }.joinToString(" · "), Uri.parse(Api.url("/api/play/books/cover/${it.id}")), true)
+
     private fun ad(it: Item): MediaItem =
         playable("ad:${it.id}", it.label, listOf(it.length, if (it.resume.isNotEmpty()) "resumes at ${it.resume}" else "")
-            .filter { s -> s.isNotEmpty() }.joinToString(", "))
+            .filter { s -> s.isNotEmpty() }.joinToString(", "),
+            (it.poster.ifEmpty { it.thumb }).takeIf { p -> p.isNotEmpty() }?.let { p -> Uri.parse(Api.url(p)) })
 
     private suspend fun children(parentId: String): List<MediaItem> {
         when {
+            // the car's tabs: Continue, Recent, Libraries, Downloads
             parentId == "root" -> return listOf(
-                folder("continue_all", "Continue", "ic_tab_continue"), folder("books_all", "Audiobooks", "ic_tab_book"),
-                folder("shows", "Shows", "ic_tab_tv"), folder("movies", "Movies", "ic_tab_movie"),
-                folder("downloads", "Downloaded", "ic_tab_download")
+                folder("continue_all", "Continue", "ic_tab_continue"), folder("recent", "Recent", "ic_tab_recent"),
+                folder("libraries", "Libraries", "ic_tab_library"), folder("downloads", "Downloads", "ic_tab_download")
             )
+            parentId == "libraries" -> return listOf(
+                folder("books_all", "Audiobooks", "ic_tab_book"), folder("shows", "Shows", "ic_tab_tv"), folder("movies", "Movies", "ic_tab_movie")
+            )
+            // the newest books, episodes and movies with AD, newest first
+            parentId == "recent" -> {
+                val books = try { Api.get("/api/play/books/list?kind=books_recent").optJSONArray("items").objs().map { Item(it) }
+                    .filter { it.type == "Book" } } catch (e: Exception) { emptyList() }
+                val av = try { list("recent") } catch (e: Exception) { emptyList() }
+                return (books.map { it to true } + av.map { it to false })
+                    .sortedByDescending { it.first.j.optDouble("added", 0.0) }.take(40)
+                    .map { (it, book) -> if (book) bookItem(it) else ad(it) }
+            }
             // books and shows / movies together, the one played most recently first
             parentId == "continue_all" -> {
                 val books = try { Api.get("/api/play/books/list?kind=books_continue").optJSONArray("items").objs().map { Item(it) }
@@ -93,15 +111,13 @@ class CarLibrary : MediaLibrarySession.Callback {
                 return all.withIndex().sortedWith(compareByDescending<IndexedValue<Pair<Item, Boolean>>> { it.value.first.j.optDouble("last", 0.0) }
                     .thenBy { it.index }).map { (_, v) ->
                     val (it, book) = v
-                    if (book) playable("book:${it.id}", it.label, listOf(it.j.optString("author"), if (it.resume.isNotEmpty()) "at ${it.resume}" else "")
-                        .filter { s -> s.isNotEmpty() }.joinToString(" · "), Uri.parse(Api.url("/api/play/books/cover/${it.id}")), true)
-                    else ad(it)
+                    if (book) bookItem(it) else ad(it)
                 }
             }
             parentId == "books_continue" || parentId == "books_all" ->
                 return Api.get("/api/play/books/list?kind=$parentId").optJSONArray("items").objs().map { Item(it) }
                     .filter { it.type == "Book" }
-                    .map { playable("book:${it.id}", it.label, it.author, Uri.parse(Api.url("/api/play/books/cover/${it.id}")), true) }
+                    .map { bookItem(it) }
             parentId == "continue" ->
                 return (list("continue_shows") + list("continue_movies")).filter { it.hasAd != false }.map { ad(it) }
             parentId == "shows" -> return list("shows").map { folder("series:${it.id}", it.label) }
