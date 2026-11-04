@@ -167,7 +167,6 @@ fun LibraryControls(lib: String, view: LibView, onChange: (LibView) -> Unit) {
     }
 }
 
-private fun org.json.JSONArray?.strs(): List<String> = if (this == null) emptyList() else (0 until length()).map { optString(it) }.filter { it.isNotEmpty() }
 
 /** A labelled box that opens a list to pick from, like Emby's. */
 @Composable
