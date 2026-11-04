@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- the play sign and the green line, kept inside the middle 66 of 108 so a round (or any) mask never cuts them -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF" android:pathData="M45,35L73,52L45,69Z" />
+    <path android:fillColor="#52B54B" android:pathData="M36,74h36v5h-36z" />
+</vector>
