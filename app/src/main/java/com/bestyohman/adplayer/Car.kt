@@ -25,9 +25,10 @@ import kotlinx.coroutines.launch
 @OptIn(UnstableApi::class)
 class CarLibrary : MediaLibrarySession.Callback {
 
-    private fun folder(id: String, title: String): MediaItem = MediaItem.Builder().setMediaId(id)
+    private fun folder(id: String, title: String, icon: String = ""): MediaItem = MediaItem.Builder().setMediaId(id)
         .setMediaMetadata(
             MediaMetadata.Builder().setTitle(title).setIsBrowsable(true).setIsPlayable(false)
+                .setArtworkUri(if (icon.isEmpty()) null else Uri.parse("android.resource://${PlayerHolder.app.packageName}/drawable/$icon"))
                 .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED).build()
         ).build()
 
@@ -79,10 +80,24 @@ class CarLibrary : MediaLibrarySession.Callback {
     private suspend fun children(parentId: String): List<MediaItem> {
         when {
             parentId == "root" -> return listOf(
-                folder("books_continue", "Continue listening"), folder("continue", "Continue watching"),
-                folder("books_all", "Audiobooks"), folder("shows", "Shows"), folder("movies", "Movies"),
-                folder("downloads", "Downloaded")
+                folder("continue_all", "Continue", "ic_tab_continue"), folder("books_all", "Audiobooks", "ic_tab_book"),
+                folder("shows", "Shows", "ic_tab_tv"), folder("movies", "Movies", "ic_tab_movie"),
+                folder("downloads", "Downloaded", "ic_tab_download")
             )
+            // books and shows / movies together, the one played most recently first
+            parentId == "continue_all" -> {
+                val books = try { Api.get("/api/play/books/list?kind=books_continue").optJSONArray("items").objs().map { Item(it) }
+                    .filter { it.type == "Book" } } catch (e: Exception) { emptyList() }
+                val av = try { (list("continue_shows") + list("continue_movies")).filter { it.hasAd != false } } catch (e: Exception) { emptyList() }
+                val all = books.map { it to true } + av.map { it to false }
+                return all.withIndex().sortedWith(compareByDescending<IndexedValue<Pair<Item, Boolean>>> { it.value.first.j.optDouble("last", 0.0) }
+                    .thenBy { it.index }).map { (_, v) ->
+                    val (it, book) = v
+                    if (book) playable("book:${it.id}", it.label, listOf(it.j.optString("author"), if (it.resume.isNotEmpty()) "at ${it.resume}" else "")
+                        .filter { s -> s.isNotEmpty() }.joinToString(" · "), Uri.parse(Api.url("/api/play/books/cover/${it.id}")), true)
+                    else ad(it)
+                }
+            }
             parentId == "books_continue" || parentId == "books_all" ->
                 return Api.get("/api/play/books/list?kind=$parentId").optJSONArray("items").objs().map { Item(it) }
                     .filter { it.type == "Book" }

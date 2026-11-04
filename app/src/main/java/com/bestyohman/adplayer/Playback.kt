@@ -193,6 +193,7 @@ class SessionPlayer(p: Player) : ForwardingPlayer(p) {
     private val ticker = Handler(Looper.getMainLooper())
     private var lastKey = ""
     private var lastBook: Boolean? = null
+    private var lastSpeech: Boolean? = null
     private val tick = object : Runnable {
         override fun run() {
             try {
@@ -214,6 +215,14 @@ class SessionPlayer(p: Player) : ForwardingPlayer(p) {
                 }
                 val book = Engine.mode == Engine.Mode.BOOK
                 if (book != lastBook) { lastBook = book; PlayerHolder.media?.setCustomLayout(CarButtons.layout(book)) }
+                // a book or the audio description is speech: when the car's navigation (or anything) speaks, it pauses
+                // and carries on after, instead of only getting quieter under it
+                val speech = Engine.mode == Engine.Mode.BOOK || Engine.mode == Engine.Mode.AUDIO
+                if (speech != lastSpeech) {
+                    lastSpeech = speech
+                    PlayerHolder.exo.setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
+                        .setContentType(if (speech) C.AUDIO_CONTENT_TYPE_SPEECH else C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
+                }
             } catch (e: Exception) { }
             ticker.postDelayed(this, 1000)
         }
