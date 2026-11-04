@@ -1,0 +1,9 @@
+e: file://app/src/main/java/com/bestyohman/adplayer/LibTools.kt:159:59 Overload resolution ambiguity between candidates:
+e: file://app/src/main/java/com/bestyohman/adplayer/LibTools.kt:160:61 Overload resolution ambiguity between candidates:
+e: file://app/src/main/java/com/bestyohman/adplayer/LibTools.kt:162:68 Unresolved reference 'it'.
+e: file://app/src/main/java/com/bestyohman/adplayer/LibTools.kt:162:71 Cannot infer type for this parameter. Please specify it explicitly.
+e: file://app/src/main/java/com/bestyohman/adplayer/LibTools.kt:162:74 Unresolved reference 'it'.
+e: file://app/src/main/java/com/bestyohman/adplayer/LibTools.kt:163:79 Unresolved reference 'it'.
+e: file://app/src/main/java/com/bestyohman/adplayer/LibTools.kt:163:82 Cannot infer type for this parameter. Please specify it explicitly.
+e: file://app/src/main/java/com/bestyohman/adplayer/LibTools.kt:163:85 Unresolved reference 'it'.
+e: file://app/src/main/java/com/bestyohman/adplayer/LibTools.kt:170:9 Conflicting overloads:
