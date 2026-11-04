@@ -604,7 +604,9 @@ private fun HomePage(p: Page, favorites: Boolean, openDrawer: () -> Unit) {
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(libs) { l ->
                             Column(
-                                Modifier.width(170.dp).clickable { W.openTab("lib", Page("library", l.s("id"), l.s("name"))) }
+                                Modifier.width(170.dp).clickable {
+                                    if (l.s("type") == "books") W.openTab("books", Page("books")) else W.openTab("lib", Page("library", l.s("id"), l.s("name")))
+                                }
                                     .clearAndSetSemantics { contentDescription = l.s("name"); role = Role.Button },
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
@@ -622,6 +624,7 @@ private fun HomePage(p: Page, favorites: Boolean, openDrawer: () -> Unit) {
             home.optJSONArray("latest").objs().forEach { r ->
                 posterRow("Latest " + r.s("name"), r.itemList(), 130.dp, onMore = { W.openTab("lib", Page("library", r.s("id"), r.s("name"))) })
             }
+            posterRow("Latest Audiobooks", home.itemList("books_latest"), 150.dp, square = true, onMore = { W.openTab("books", Page("books")) })
         }
         TopBar(null, openDrawer)
     }
@@ -630,8 +633,9 @@ private fun HomePage(p: Page, favorites: Boolean, openDrawer: () -> Unit) {
 // ------------------------------------------------------------------------------------------- a grid of posters
 @Composable
 private fun GridPage(p: Page, openDrawer: () -> Unit) {
+    var view by remember(p.id) { mutableStateOf(LibView.load(p.id)) }
     val path = when (p.kind) {
-        "library" -> "/api/play/list?kind=library&parent=${enc(p.id)}"
+        "library" -> "/api/play/list?kind=library&parent=${enc(p.id)}" + view.query()
         "children" -> "/api/play/list?kind=children&parent=${enc(p.id)}"
         else -> if (p.id == "noad") "/api/play/list?kind=noad" else "/api/play/list?kind=${enc(p.id)}"
     }
@@ -639,8 +643,12 @@ private fun GridPage(p: Page, openDrawer: () -> Unit) {
     val list = d?.itemList()
     Column(Modifier.fillMaxSize()) {
         TopBar(p.title, openDrawer)
+        // a library: sort and filter it (kept for next time)
+        if (p.kind == "library") LibraryControls(p.id, view) { v -> view = v; LibView.save(p.id, v) }
         when {
             list == null -> Loading(err)
+            list.isEmpty() && p.kind == "library" && view.filtersOn > 0 ->
+                Text("Nothing matches these filters.", color = ESub, modifier = Modifier.padding(16.dp))
             list.isEmpty() -> Text("Nothing here.", color = ESub, modifier = Modifier.padding(16.dp))
             p.id == "requests" -> LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 170.dp)) {
                 items(list) { r ->
