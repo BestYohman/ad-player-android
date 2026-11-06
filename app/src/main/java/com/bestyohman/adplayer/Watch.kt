@@ -560,15 +560,15 @@ private fun InviteCards() {
 }
 
 @Composable
-fun WhitePill(text: String, icon: ImageVector?, modifier: Modifier, dark: Boolean = false, onClick: () -> Unit) {
+fun WhitePill(text: String, icon: ImageVector?, modifier: Modifier, dark: Boolean = false, size: Int = 20, onClick: () -> Unit) {
     Row(
         modifier.clip(RoundedCornerShape(50)).background(if (dark) Color(0xFF2B2B2B) else Color.White).clickable(onClick = onClick)
             .semantics { role = Role.Button }.padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
     ) {
         if (icon != null) Icon(icon, null, tint = if (dark) Color.White else Color.Black, modifier = Modifier.size(28.dp))
-        Text(text, color = if (dark) Color.White else Color.Black, fontSize = 20.sp, fontWeight = FontWeight.Medium,
-            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp))
+        Text(text, color = if (dark) Color.White else Color.Black, fontSize = size.sp, fontWeight = FontWeight.Medium,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = if (icon != null) 8.dp else 0.dp))
     }
 }
 
@@ -839,9 +839,8 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                         if (target != null) Engine.start(target, target.resume.isNotEmpty())
                         else info.j.optJSONArray("seasons").objs().firstOrNull()?.let { W.open(Item(it)) }
                     }
-                    if (j.s("trailer").isNotEmpty()) WhitePill("Trailer", Ic.Movie, Modifier.weight(1f).height(56.dp), dark = true) {
-                        try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(j.s("trailer")))) }
-                        catch (e: Exception) { Engine.say("Couldn't open the trailer.") }
+                    if (target != null) WhitePill("Play together", null, Modifier.weight(1f).height(56.dp), dark = true, size = 18) {
+                        Engine.start(target, target.resume.isNotEmpty(), together = true)
                     }
                 }
             }
@@ -855,6 +854,10 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                     val pl = W.isPlayed(info)
                     Action("Played", Ic.Check, if (pl) EGreen else Color.White) { W.markPlayed(info, !pl) }
                     Action("Favorite", if (info.favorite) Ic.HeartFull else Ic.Heart, if (info.favorite) ERed else Color.White) { Engine.toggleFavorite(info) }
+                    if (j.s("trailer").isNotEmpty()) Action("Trailer", Ic.Movie) {
+                        try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(j.s("trailer")))) }
+                        catch (e: Exception) { Engine.say("Couldn't open the trailer.") }
+                    }
                     Box {
                         Action("More", Ic.More) { more = true }
                         MoreMenu(info, more, { more = false })
@@ -933,9 +936,13 @@ private fun SeasonPage(p: Page, openDrawer: () -> Unit) {
             if (info == null) { item { Loading(err) }; return@LazyColumn }
             item {
                 val next = list?.firstOrNull { it.resume.isNotEmpty() } ?: list?.firstOrNull { !W.isPlayed(it) } ?: list?.firstOrNull()
-                WhitePill(if (next?.resume?.isNotEmpty() == true) "Resume" else "Play", Ic.Play,
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp).height(56.dp)) {
-                    if (next != null) Engine.start(next, next.resume.isNotEmpty())
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    WhitePill(if (next?.resume?.isNotEmpty() == true) "Resume" else "Play", Ic.Play, Modifier.weight(1f).height(56.dp)) {
+                        if (next != null) Engine.start(next, next.resume.isNotEmpty())
+                    }
+                    if (next != null) WhitePill("Play together", null, Modifier.weight(1f).height(56.dp), dark = true, size = 18) {
+                        Engine.start(next, next.resume.isNotEmpty(), together = true)
+                    }
                 }
             }
             item {
@@ -987,6 +994,9 @@ private fun EpisodeCard(item: Item) {
                     if (Offline.done(item.id, "video") != null || Offline.done(item.id, "audio") != null)
                         Icon(Ic.Download, "Downloaded", tint = EGreen, modifier = Modifier.size(18.dp))
                 }
+            }
+            IconButton(onClick = { Engine.start(item, item.resume.isNotEmpty(), together = true) }) {
+                Icon(Ic.Group, "Play ${item.label} together", tint = Color.White)
             }
             Box {
                 IconButton(onClick = { menu = true }) { Icon(Ic.More, "More for ${item.name}", tint = Color.White) }
@@ -1157,8 +1167,13 @@ private fun BookPage(p: Page, openDrawer: () -> Unit) {
                         if (finished) "Finished" else if (pos > 5 && dur > 0) "${(pos * 100 / dur).toInt()}% done" else if (item.pct > 0) "${item.pct}% done" else "")
                         .filter { it.isNotEmpty() }.joinToString("   ")
                     if (m.isNotEmpty()) Text(m, color = ESub, fontSize = 18.sp, modifier = Modifier.padding(top = 8.dp))
-                    WhitePill(if (resume) "Resume" else "Play", Ic.Play, Modifier.fillMaxWidth().padding(top = 18.dp).height(56.dp)) {
-                        Engine.bookPlay(item, true, null)
+                    Row(Modifier.fillMaxWidth().padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        WhitePill(if (resume) "Resume" else "Play", Ic.Play, Modifier.weight(1f).height(56.dp)) {
+                            Engine.bookPlay(item, true, null)
+                        }
+                        WhitePill("Play together", null, Modifier.weight(1f).height(56.dp), dark = true, size = 18) {
+                            Engine.bookPlay(item, true, null, together = true)
+                        }
                     }
                     Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.Center) {
                         val saved = Offline.find(item.id, "book")
@@ -1227,11 +1242,7 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
             item { row("Play on", Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "Choose", Ic.Cast) { castOpen = true } }
             if (Engine.devHelp.isNotEmpty()) item { Text(Engine.devHelp, color = ESub, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 56.dp)) }
             item {
-                row("Play together", "What you start here also plays on another person's phone, in step.", Ic.Group,
-                    trailing = { Switch(checked = Engine.together, onCheckedChange = { Engine.toggleTogether() }) }) { Engine.toggleTogether() }
-            }
-            if (Engine.together) item {
-                row("Headphone delay", Engine.delays.firstOrNull { it.first == Engine.headphoneDelay }?.second ?: Engine.headphoneDelay, Ic.Headphones) { dOpen = true }
+                row("Headphone delay (playing together)", Engine.delays.firstOrNull { it.first == Engine.headphoneDelay }?.second ?: Engine.headphoneDelay, Ic.Headphones) { dOpen = true }
             }
             item { row("Video quality", Engine.qualityLabel(), Ic.Settings) { qOpen = true } }
             item {

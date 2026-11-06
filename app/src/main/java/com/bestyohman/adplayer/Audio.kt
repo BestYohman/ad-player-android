@@ -256,13 +256,11 @@ fun AudioScreen(act: MainActivity) {
             "60" to "1 hour", "chapter" to "End of this chapter"), b?.sleep ?: "off", { Engine.setSleep(it) }, { dialog = "" })
         "settings" -> ChoiceDialog("Settings", buildList {
             add("cast" to "Play on: " + (Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "choose"))
-            add("together" to "Play together: " + if (Engine.together) "on" else "off")
-            if (Engine.together || Engine.tg != null) add("delay" to "Headphone delay: " +
+            add("delay" to "Headphone delay (playing together): " +
                 (Engine.delays.firstOrNull { it.first == Engine.headphoneDelay }?.second ?: Engine.headphoneDelay))
         }, "", {
             when (it) {
                 "cast" -> dialog = "cast"
-                "together" -> Engine.toggleTogether()
                 "delay" -> dialog = "delay"
             }
         }, { if (dialog == "settings") dialog = "" })

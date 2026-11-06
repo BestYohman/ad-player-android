@@ -2,6 +2,11 @@
 
 Each version below is a release on GitHub (Releases, "v1.8.0" and so on). The newest is also "AD Player (latest)".
 
+## 1.10.0 - 2026-11-06
+- **Play together** is a button beside each Play (episodes, movies, books, and on a show's, movie's or book's page) instead of a switch. With a TV chosen, Play together moves to the phone by itself. The headphone delay stays in Settings.
+- The library **filters** have their Genre, Parental rating and Year choices again (the PC now collects them from the library itself - needs the PC's app 2.26.0).
+- An episode or movie without audio description plays its soundtrack on the phone.
+
 ## 1.9.0 - 2026-11-04
 - **Updates:** when a new version is on GitHub, Home shows "Version … is ready" with what's new and an **Install** button (the phone asks once to allow installing from AD Player). Settings shows the app's version and can check by hand.
 - **Downloads tidy themselves** (Settings, both off to start): **Remove downloads once finished**, and **Download the next episode on Wi-Fi** when a downloaded episode ends.

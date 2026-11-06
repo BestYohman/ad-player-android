@@ -310,14 +310,7 @@ private fun WhereSection() {
             }
         }
         if (Engine.dev == "__video") QualityButton()
-        if (Engine.isPhone) {
-            val t = "Play together: " + if (Engine.together) "on" else "off"
-            if (Engine.together) Button(onClick = { Engine.toggleTogether() }, modifier = Modifier.padding(top = 8.dp)) { Text(t) }
-            else OutlinedButton(onClick = { Engine.toggleTogether() }, modifier = Modifier.padding(top = 8.dp)) { Text(t) }
-            Text("When on, what you start here also plays on another person's phone, in step. They get a Join button.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (Engine.together) DelayButton()
-        }
+        if (Engine.tg != null) DelayButton()
     }
 }
 
@@ -644,6 +637,7 @@ private fun PosterCard(item: Item, land: Boolean) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun EpisodeRow(item: Item) {
     Column(Modifier.fillMaxWidth()) {
@@ -674,7 +668,11 @@ private fun EpisodeRow(item: Item) {
                 )
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { Engine.start(item, item.resume.isNotEmpty(), together = true) },
+                modifier = Modifier.semantics { contentDescription = "Play ${item.label} together" }
+            ) { Text("Play together") }
             if (item.resume.isNotEmpty()) OutlinedButton(
                 onClick = { Engine.start(item, false) },
                 modifier = Modifier.semantics { contentDescription = "Start ${item.label} from the beginning" }
@@ -710,6 +708,8 @@ private fun DetailHeader(item: Item) {
                 Button(onClick = { Engine.start(item, item.resume.isNotEmpty()) }) {
                     Text(if (item.resume.isNotEmpty()) "Resume from ${item.resume}" else "Play")
                 }
+                OutlinedButton(onClick = { Engine.start(item, item.resume.isNotEmpty(), together = true) },
+                    modifier = Modifier.semantics { contentDescription = "Play ${item.label} together" }) { Text("Play together") }
                 if (item.resume.isNotEmpty()) OutlinedButton(onClick = { Engine.start(item, false) }) { Text("Start over") }
             }
         }
@@ -762,6 +762,7 @@ private fun RowButton(text: String, onClick: () -> Unit) {
 }
 
 /** The plain list - for people who only listen, for audiobooks and for requests. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SimpleRow(item: Item, v: Engine.View) {
     Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
@@ -790,7 +791,11 @@ private fun SimpleRow(item: Item, v: Engine.View) {
                 if (item.resume.isNotEmpty()) p.add((if (item.pct > 0) "${item.pct} percent done, " else "") + "resumes at ${item.resume}")
                 else if (item.finished) p.add("finished")
                 RowButton(p.joinToString(", ")) { Engine.bookPlay(item, true, null) }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { Engine.bookPlay(item, true, null, together = true) },
+                        modifier = Modifier.semantics { contentDescription = "Play ${item.label} together" }
+                    ) { Text("Play together") }
                     if (item.resume.isNotEmpty() || item.finished) OutlinedButton(
                         onClick = { Engine.bookPlay(item, false, 0.0) },
                         modifier = Modifier.semantics { contentDescription = "Start ${item.label} from the beginning" }
@@ -824,7 +829,11 @@ private fun SimpleRow(item: Item, v: Engine.View) {
                 if (item.resume.isNotEmpty()) p.add("resumes at ${item.resume}") else if (item.played) p.add("watched")
                 if (item.hasAd == false) p.add("no audio description")
                 RowButton(p.joinToString(", ")) { Engine.start(item, item.resume.isNotEmpty()) }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { Engine.start(item, item.resume.isNotEmpty(), together = true) },
+                        modifier = Modifier.semantics { contentDescription = "Play ${item.label} together" }
+                    ) { Text("Play together") }
                     if (item.resume.isNotEmpty()) OutlinedButton(
                         onClick = { Engine.start(item, false) },
                         modifier = Modifier.semantics { contentDescription = "Start ${item.label} from the beginning" }

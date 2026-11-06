@@ -355,9 +355,9 @@ object Engine {
     var bk by mutableStateOf<Bk?>(null)
     private var lastSave = 0L
 
-    fun start(it: Item, resume: Boolean) {
+    fun start(it: Item, resume: Boolean, together: Boolean = false) {
         browse = false
-        if (isPhone && together) { tgStartVideo(it, resume); return }
+        if (together) { phoneForTogether(); tgStartVideo(it, resume); return }
         if (tg != null) tgLeave(true)
         when (dev) {
             "__video" -> videoStart(it.id, it.label, resume, hint = it.resumeTicks / 1e7)
@@ -402,7 +402,7 @@ object Engine {
         if (!me.tg) say("Getting the audio of $label ready…")
         launchSafe {
             flushPlaces()
-            var d = Api.post("/api/play/listen/prepare", mapOf("item" to id, "fmt" to "hls", "any" to if (me.tg) "1" else "0"))
+            var d = Api.post("/api/play/listen/prepare", mapOf("item" to id, "fmt" to "hls", "any" to "1"))
             if (loc !== me) return@launchSafe
             if (d.err().isNotEmpty() && d.s("id").isEmpty()) { say(d.err()); loc = null; mode = Mode.NONE; return@launchSafe }
             me.title = d.s("title").ifEmpty { label }
@@ -702,13 +702,13 @@ object Engine {
     }
 
     // ---------------------------------------------------------------- audiobooks on the phone
-    fun bookPlay(it: Item, resume: Boolean, at: Double?) {
+    fun bookPlay(it: Item, resume: Boolean, at: Double?, together: Boolean = false) {
         browse = false
         val id = if (it.type == "Chapter") it.book else it.id
         val label = if (it.type == "Chapter") it.bookTitle else it.label
+        if (together) { phoneForTogether(); tgStartBook(id, label, resume, at); return }
         val t = tg
         if (t != null && t.kind == "book" && t.last.s("item") == id && at != null) { tgControl("seek", mapOf("pos" to at.toString())); return }
-        if (isPhone && together) { tgStartBook(id, label, resume, at); return }
         if (t != null) tgLeave(true)
         if (isPhone) {
             val b = bk
@@ -1228,7 +1228,6 @@ object Engine {
     }
 
     // ---------------------------------------------------------------- playing together
-    var together by mutableStateOf(Prefs.together)
     class Tg(val room: String) {
         var kind = ""; var role = ""; var iseq = 0; var iseqLoaded = 0; var msgSeq = 0; var jseq = 0; var waitingAhead = false
         var last = JSONObject(); var rtt = 0.15
@@ -1238,10 +1237,9 @@ object Engine {
     private val seenInvites = mutableSetOf<String>()
     private var tgJob: Job? = null
 
-    fun toggleTogether() {
-        together = !together
-        Prefs.together = together
-        say(if (together) "Play together is on. What you start now also plays on the other person's phone once they join." else "Play together is off.")
+    /** Play together works on the phone: with a TV chosen, it moves to the phone first. */
+    private fun phoneForTogether() {
+        if (!isPhone) pickDevice(if (tgMode() == "video" && devices.any { it.id == "__video" }) "__video" else "__local")
     }
 
     private fun tgMode() = if (role == "watch" && dev != "__local") "video" else "audio"
