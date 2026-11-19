@@ -234,6 +234,9 @@ class SessionPlayer(p: Player) : ForwardingPlayer(p) {
     override fun setPlayWhenReady(playWhenReady: Boolean) {
         if (!Engine.onTransport(if (playWhenReady) "play" else "pause")) super.setPlayWhenReady(playWhenReady)
     }
+    // a stop from outside the app (Hey Google, the headset, the car, the notification): the app's own Stop - the place
+    // is saved, and playing together it stops as the app's Stop does
+    override fun stop() { if (!Engine.onTransport("stop")) super.stop() }
     override fun seekBack() { if (!Engine.onTransport("back30")) super.seekBack() }
     override fun seekForward() { if (!Engine.onTransport("fwd30")) super.seekForward() }
     override fun seekToNext() { if (!Engine.onTransport("next")) super.seekToNext() }
@@ -277,6 +280,7 @@ class PlaybackService : MediaLibraryService() {
         PlayerHolder.init(this)
         Offline.init(this)
         Downloads.init(this)
+        Engine.startTicker()            // started from the car or a headset without the app: the place is still saved
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
@@ -290,6 +294,8 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val p = mediaSession?.player
+        // playing together but paused (or waiting): it leaves, so it can't start later with no notification
+        if (Engine.leaveIfIdle(p?.playWhenReady == true)) { stopSelf(); return }
         if (p == null || !p.playWhenReady || p.mediaItemCount == 0) stopSelf()
     }
 

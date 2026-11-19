@@ -94,8 +94,13 @@ fun PlayerScreen(act: MainActivity) {
     @Suppress("UNUSED_VARIABLE") val t = Engine.tick
     val exo = PlayerHolder.exo
     val playing = exo.playWhenReady
+    // with TalkBack on, the controls stay (there is nothing to tap to bring them back without seeing them)
+    val am = androidx.compose.ui.platform.LocalContext.current.getSystemService(android.view.accessibility.AccessibilityManager::class.java)
     LaunchedEffect(shown, poke, playing, sheet, dialog) {
-        if (shown && playing && sheet.isEmpty() && dialog.isEmpty()) { delay(4500); shown = false }
+        if (shown && playing && sheet.isEmpty() && dialog.isEmpty() && am?.isTouchExplorationEnabled != true) {
+            delay(4500)
+            if (am?.isTouchExplorationEnabled != true) shown = false
+        }
     }
     val touch = { poke = System.currentTimeMillis() }
     Box(
@@ -149,7 +154,7 @@ fun PlayerScreen(act: MainActivity) {
             when (it) {
                 "quality" -> dialog = "quality"
                 "delay" -> dialog = "delay"
-                "stop" -> { Engine.cmd("stop"); W.player = false }
+                "stop" -> Engine.stopPressed { W.player = false }
                 "leave" -> { Engine.tgLeave(false); W.player = false }
             }
         }, { if (dialog == "settings") dialog = "" })

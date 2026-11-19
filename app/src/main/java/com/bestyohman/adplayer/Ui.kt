@@ -108,7 +108,26 @@ fun AppRoot(act: MainActivity) {
                 Text("Connecting to the PC…", Modifier.padding(16.dp))
             }
         }
+        StopAllDialog()
     }
+}
+
+/** Playing together, Stop stops the others too: she's asked first. */
+@Composable
+private fun StopAllDialog() {
+    val after = Engine.askStopAll ?: return
+    AlertDialog(
+        onDismissRequest = { Engine.askStopAll = null },
+        title = { Text("Stop for everyone?") },
+        text = { Text("The others stop too. To stop only on this phone, choose Leave.") },
+        confirmButton = { TextButton(onClick = { Engine.askStopAll = null; Engine.cmd("stop"); after() }) { Text("Stop for everyone") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { Engine.askStopAll = null; Engine.tgLeave(false); after() }) { Text("Leave") }
+                TextButton(onClick = { Engine.askStopAll = null }) { Text("Cancel") }
+            }
+        }
+    )
 }
 
 @Composable
@@ -411,7 +430,7 @@ fun NowPlaying(st: Engine.St) {
         Text(st.text, Modifier.padding(vertical = 8.dp))
         val b = mutableListOf<Triple<String, Boolean, () -> Unit>>()
         b.add(Triple(if (st.paused) "Play" else "Pause", true, { Engine.cmd("playpause") }))
-        b.add(Triple(if (Engine.tg != null) "Stop for everyone" else "Stop", false, { Engine.cmd("stop") }))
+        b.add(Triple(if (Engine.tg != null) "Stop for everyone" else "Stop", false, { Engine.stopPressed() }))
         if (Engine.tg != null) b.add(Triple("Leave - the others carry on", false, { Engine.tgLeave(false) }))
         b.add(Triple("Back 30 seconds", false, { Engine.cmd("back30") }))
         b.add(Triple("Forward 30 seconds", false, { Engine.cmd("fwd30") }))

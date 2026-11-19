@@ -158,7 +158,7 @@ fun AudioScreen(act: MainActivity) {
                             })
                         }
                         DropdownMenuItem(text = { Text(if (Engine.tg != null) "Stop for everyone" else "Stop playing") }, leadingIcon = { Icon(Ic.Stop, null) },
-                            onClick = { menu = false; Engine.cmd("stop"); W.player = false })
+                            onClick = { menu = false; Engine.stopPressed { W.player = false } })
                         if (Engine.tg != null) DropdownMenuItem(text = { Text("Leave - the others carry on") }, leadingIcon = { Icon(Ic.Logout, null) },
                             onClick = { menu = false; Engine.tgLeave(false); W.player = false })
                     }
@@ -198,7 +198,7 @@ fun AudioScreen(act: MainActivity) {
                 IconButton(onClick = { Engine.cmd("playpause") }, modifier = Modifier.size(64.dp)) {
                     Icon(if (paused) Ic.Play else Ic.Pause, if (paused) "Play" else "Pause", tint = Color.White, modifier = Modifier.size(52.dp))
                 }
-                Small(Ic.Stop, if (Engine.tg != null) "Stop for everyone" else "Stop") { Engine.cmd("stop"); W.player = false }
+                Small(Ic.Stop, if (Engine.tg != null) "Stop for everyone" else "Stop") { Engine.stopPressed { W.player = false } }
                 Small(Ic.Forward, "Forward 30 seconds") { Engine.cmd("fwd30") }
                 Small(Ic.Next, if (book) "Next chapter" else "Next episode", enabled = book || (l?.hasNext == true)) { Engine.cmd("next") }
             }

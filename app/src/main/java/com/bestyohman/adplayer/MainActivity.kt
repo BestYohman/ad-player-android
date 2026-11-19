@@ -52,13 +52,25 @@ class MainActivity : ComponentActivity() {
         setContent { AppTheme { AppRoot(this) } }
         if (Engine.screen == "boot" || Engine.me == null) Engine.boot()
         openLink(intent)
+        voiceSearch(intent)
     }
 
-    /** adplayer://open?kind=item&id=...&extra=Series - opens a page of the watch app (used for the screenshots). */
+    /** "Hey Google, play ... on AD Player": the best match on the PC, played where it plays now. */
+    private fun voiceSearch(intent: android.content.Intent?) {
+        if (intent?.action != android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH) return
+        val q = intent.getStringExtra(android.app.SearchManager.QUERY) ?: ""
+        intent.action = android.content.Intent.ACTION_MAIN          // (not again if the app is opened again)
+        Engine.voiceSearch(q)
+    }
+
+    /** adplayer://open?kind=item&id=...&extra=Series - opens a page of the watch app (used for the screenshots;
+     *  test builds only). A link with bad data is ignored. */
     private fun openLink(intent: android.content.Intent?) {
+        if (!BuildConfig.DEBUG) return
         val u = intent?.data ?: return
         if (u.scheme != "adplayer" || u.host != "open") return
         val kind = u.getQueryParameter("kind") ?: return
+        if (kind == "book" && (try { org.json.JSONObject(u.getQueryParameter("extra") ?: "").optString("id") } catch (e: Exception) { "" }).isEmpty()) return
         W.player = false
         when (kind) {
             "home", "search", "downloads", "movies" -> W.openTab(kind)
@@ -73,6 +85,7 @@ class MainActivity : ComponentActivity() {
         // a "play together" notification (adplayer://join): show the Join button straight away
         if (intent.data?.scheme == "adplayer" && intent.data?.host != "open") Engine.scope.launch { try { Engine.pollInvites() } catch (e: Exception) { } }
         openLink(intent)
+        voiceSearch(intent)
     }
 
     override fun onStart() {

@@ -372,7 +372,7 @@ private fun MiniPlayer() {
             )
         }
         IconButton(onClick = { Engine.cmd("playpause") }) { Icon(if (st.paused) Ic.Play else Ic.Pause, if (st.paused) "Play" else "Pause", tint = Color.White) }
-        IconButton(onClick = { Engine.cmd("stop") }) { Icon(Ic.Close, if (Engine.tg != null) "Stop for everyone" else "Stop", tint = ESub) }
+        IconButton(onClick = { Engine.stopPressed() }) { Icon(Ic.Close, if (Engine.tg != null) "Stop for everyone" else "Stop", tint = ESub) }
     } }
 }
 
@@ -1130,7 +1130,9 @@ private fun BooksPage(p: Page, openDrawer: () -> Unit) {
 
 @Composable
 private fun BookPage(p: Page, openDrawer: () -> Unit) {
-    val item = remember(p) { Item(JSONObject(p.extra)) }
+    // (a link with bad data: back where it was, instead of closing the app)
+    val item = remember(p) { try { Item(JSONObject(p.extra)).takeIf { it.id.isNotEmpty() } } catch (e: Exception) { null } }
+    if (item == null) { LaunchedEffect(p) { W.back() }; return }
     val (bd, _) = rememberData(if (Engine.offline) null else "/api/play/books/book?id=${enc(item.id)}")
     val chapters = bd?.optJSONArray("chapters").objs()
     val ls = W.list(p)

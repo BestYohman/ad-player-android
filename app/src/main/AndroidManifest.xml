@@ -43,6 +43,11 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="adplayer" />
             </intent-filter>
+            <!-- "Hey Google, play ... on AD Player" on the phone -->
+            <intent-filter>
+                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
 
         <service
@@ -55,6 +60,19 @@
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
+        <!-- the headset's Play after the phone restarted: carries on with the last book or audio description -->
+        <receiver
+            android:name="androidx.media3.session.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+        <!-- posters and covers for the car (it can't fetch the PC's pictures itself); only the PC's pictures -->
+        <provider
+            android:name=".ArtProvider"
+            android:authorities="${applicationId}.art"
+            android:exported="true" />
         <service
             android:name=".FetchService"
             android:exported="false"

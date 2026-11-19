@@ -17,6 +17,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -43,6 +45,8 @@ object Engine {
     var tick by mutableStateOf(0)                 // changes every second, so "Now playing" stays up to date
     var offline by mutableStateOf(false)           // couldn't reach the PC: only what's downloaded
 
+    const val NO_AD = "No audio description – playing the soundtrack."
+
     fun say(t: String) {
         if (t.isEmpty()) return
         message = t
@@ -61,12 +65,26 @@ object Engine {
         }
     }
 
+    private var ticking = false
+    /** The once-a-second loop (the place saved every 30 seconds, the sleep timer): started by the app, or by the
+     *  playback service when the car (or a headset) starts something without the app being opened. Only once. */
+    fun startTicker() {
+        if (ticking) return
+        ticking = true
+        scope.launch {
+            while (true) {
+                delay(1000)
+                try { everySecond() } catch (e: CancellationException) { throw e } catch (e: Exception) { }
+            }
+        }
+    }
+
     private var started = false
     fun boot() {
         screen = "boot"
+        startTicker()
         if (!started) {
             started = true
-            scope.launch { while (true) { delay(1000); everySecond() } }
             scope.launch {
                 while (true) {
                     delay(5000)
@@ -361,7 +379,7 @@ object Engine {
         if (tg != null) tgLeave(true)
         when (dev) {
             "__video" -> videoStart(it.id, it.label, resume, hint = it.resumeTicks / 1e7)
-            "__local" -> listenStart(it.id, it.label, resume, hint = it.resumeTicks / 1e7)
+            "__local" -> listenStart(it.id, it.label, resume, hint = it.resumeTicks / 1e7, any = it.hasAd == false)
             "" -> say("Choose where to play it first.")
             else -> tvStart(it, resume)
         }
@@ -380,11 +398,13 @@ object Engine {
         lastSave = System.currentTimeMillis()
     }
 
-    /** Just the audio (the AD track, or the soundtrack when playing together and there's no AD). */
-    fun listenStart(id: String, label: String, resume: Boolean, tgPos: Double? = null, hint: Double = -1.0) {
+    /** Just the audio (the AD track, or the soundtrack when playing together and there's no AD).
+     *  any: she chose one without audio description (its soundtrack is played then). */
+    fun listenStart(id: String, label: String, resume: Boolean, tgPos: Double? = null, hint: Double = -1.0, any: Boolean = false) {
         stopPhone(true)
         val me = Loc(id, label, tgPos != null)
         loc = me; mode = Mode.AUDIO
+        if (!me.tg) noteLast("ad:$id", label)
         val off = Offline.done(id, "audio")
         if (off != null) {                                  // downloaded: play it from the phone
             me.title = off.title; me.hasNext = off.hasNext; me.runtime = off.runtime; me.local = true
@@ -402,7 +422,9 @@ object Engine {
         if (!me.tg) say("Getting the audio of $label ready…")
         launchSafe {
             flushPlaces()
-            var d = Api.post("/api/play/listen/prepare", mapOf("item" to id, "fmt" to "hls", "any" to "1"))
+            // the soundtrack is asked for only when playing together or when she chose one without AD
+            val ask = if (me.tg || any) mapOf("item" to id, "fmt" to "hls", "any" to "1") else mapOf("item" to id, "fmt" to "hls")
+            var d = Api.post("/api/play/listen/prepare", ask)
             if (loc !== me) return@launchSafe
             if (d.err().isNotEmpty() && d.s("id").isEmpty()) { say(d.err()); loc = null; mode = Mode.NONE; return@launchSafe }
             me.title = d.s("title").ifEmpty { label }
@@ -418,7 +440,7 @@ object Engine {
                 if (d.err().isNotEmpty() && d.s("id").isEmpty() && !askedAgain) {
                     // the PC forgot it (it restarted): ask once more
                     askedAgain = true
-                    d = Api.post("/api/play/listen/prepare", mapOf("item" to id, "fmt" to "hls", "any" to "1"))
+                    d = Api.post("/api/play/listen/prepare", ask)
                     if (loc !== me) return@launchSafe
                     if (d.s("id").isNotEmpty()) me.job = d.s("id")
                     continue
@@ -458,13 +480,15 @@ object Engine {
                     me.local = true
                     playUrl(Uri.fromFile(f).toString(), me.title, if (me.hasAd) "Audio description" else "Soundtrack", me.resumeS, false)
                     me.ready = true
+                    if (!me.hasAd) say(NO_AD)
                     return@launchSafe
                 }
             }
             playUrl(d.s("url"), me.title, if (me.hasAd) "Audio description" else "Soundtrack", me.resumeS, !me.tg)
             me.ready = true
             fetchWhole(me)
-            if (!me.tg) say("Playing ${me.title} on this phone" + (if (me.resumeS > 5) " from ${fmtTime(me.resumeS)}" else "") + ".")
+            if (!me.tg) say((if (!me.hasAd) "$NO_AD " else "") + "Playing ${me.title} on this phone" + (if (me.resumeS > 5) " from ${fmtTime(me.resumeS)}" else "") + ".")
+            else if (!me.hasAd) say(NO_AD)
         }
     }
 
@@ -473,6 +497,7 @@ object Engine {
         stopPhone(true)
         val me = Vid(id, label, tgPos != null)
         vd = me; mode = Mode.VIDEO
+        if (!me.tg) forgetLast()                                // (a video isn't carried on from a headset or the car)
         val off = Offline.done(id, "video")
         if (off != null) {                                  // downloaded: play it from the phone
             me.title = off.title; me.hasNext = off.hasNext; me.runtime = off.runtime
@@ -720,6 +745,73 @@ object Engine {
         return false
     }
 
+    // ---------------------------------------------------------------- carrying on after a restart, and voice
+    /** What was last listened to on this phone ("ad:<item>" or "book:<id>", and its title), for the headset's or the
+     *  car's Play straight after the phone restarts. */
+    fun lastPlayed(): Pair<String, String>? {
+        val j = try { JSONObject(Prefs.str("last_play", "{}")) } catch (e: Exception) { return null }
+        val id = j.s("id")
+        return if (id.startsWith("ad:") || id.startsWith("book:")) id to j.s("title") else null
+    }
+    private fun noteLast(id: String, title: String) { Prefs.put("last_play", JSONObject().put("id", id).put("title", title).toString()) }
+    private fun forgetLast() { Prefs.put("last_play", "") }
+
+    /** "Hey Google, play <title> on AD Player" from the car or the headset: the best match on the PC, on this phone
+     *  (just the audio, or the book). Nothing said: carries on with the last one. */
+    suspend fun playFromSearch(q: String): Boolean {
+        if (q.isBlank()) { val l = lastPlayed() ?: return false; return playForCar(l.first, l.second) }
+        val it = findForVoice(q) ?: run { say("Couldn't find $q."); return false }
+        return playForCar(if (it.type == "Book") "book:${it.id}" else "ad:${it.id}", it.label)
+    }
+
+    /** The same from the phone (the Assistant opening the app): plays it where it plays now. */
+    fun voiceSearch(q: String) = launchSafe {
+        for (i in 0 until 60) { if (screen == "main") break; delay(500) }
+        if (screen != "main") return@launchSafe
+        if (q.isBlank()) {
+            val l = lastPlayed() ?: run { say("Say what to play."); return@launchSafe }
+            val id = l.first.substringAfter(':')
+            if (l.first.startsWith("book:")) bookPlay(Item(JSONObject().put("id", id).put("type", "Book").put("label", l.second)), true, null)
+            else start(Item(JSONObject().put("id", id).put("type", "Episode").put("label", l.second)), true)
+            return@launchSafe
+        }
+        say("Looking for $q…")
+        val it = findForVoice(q) ?: run { say("Couldn't find $q."); return@launchSafe }
+        if (it.type == "Book") bookPlay(it, true, null) else start(it, it.resume.isNotEmpty())
+    }
+
+    /** The best match for what was said: movies, episodes and shows (a show: its next episode), and audiobooks. */
+    private suspend fun findForVoice(q0: String): Item? {
+        val q = q0.trim()
+        val (av, books) = coroutineScope {
+            val a = async { try { Api.get("/api/play/list?kind=search&device=__local&q=${enc(q)}").optJSONArray("items").objs().map { Item(it) } }
+                catch (e: ApiError) { if (e.login) throw e; emptyList() } }
+            val b = async { try { Api.get("/api/play/books/list?kind=books_search&q=${enc(q)}").optJSONArray("items").objs().map { Item(it) }
+                .filter { it.type == "Book" } } catch (e: ApiError) { if (e.login) throw e; emptyList() } }
+            a.await() to b.await()
+        }
+        fun norm(s: String) = s.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+        val nq = norm(q)
+        fun score(it: Item): Double {
+            val names = listOf(norm(it.name), norm(it.label), norm(it.seriesName)).filter { n -> n.isNotEmpty() }
+            val s = when {
+                names.any { n -> n == nq } -> 4.0
+                names.any { n -> n.startsWith(nq) } -> 3.0
+                names.any { n -> n.contains(nq) } -> 2.0
+                names.any { n -> nq.contains(n) } -> 1.0
+                else -> 0.0
+            }
+            return s + if (it.hasAd == false) 0.0 else 0.5
+        }
+        val best = (av + books).filter { it.type in listOf("Movie", "Episode", "Series", "Book") }.maxByOrNull { score(it) } ?: return null
+        if (best.type != "Series") return best
+        // a show: the next episode to watch, or else its first one
+        Api.get("/api/play/info?id=${enc(best.id)}").optJSONObject("next_up")?.let { return Item(it) }
+        val season = Api.get("/api/play/list?kind=seasons&parent=${enc(best.id)}").optJSONArray("items").objs().firstOrNull() ?: return null
+        val eps = Api.get("/api/play/list?kind=episodes&parent=${enc(season.s("id"))}").optJSONArray("items").objs().map { Item(it) }
+        return eps.firstOrNull { it.hasAd != false } ?: eps.firstOrNull()
+    }
+
     // ---------------------------------------------------------------- audiobooks on the phone
     fun bookPlay(it: Item, resume: Boolean, at: Double?, together: Boolean = false) {
         browse = false
@@ -756,6 +848,7 @@ object Engine {
         stopPhone(true)
         val me = Bk(id, label, noplay)
         bk = me; mode = Mode.BOOK
+        if (!noplay) noteLast("book:$id", label)
         if (!noplay) say("Getting $label ready…")
         launchSafe {
             val off = Offline.done(id, "book")
@@ -778,7 +871,8 @@ object Engine {
                 // the book in pieces (each part, or 10 minutes of a long file): fetched one at a time onto the phone
                 val segs = b.optJSONArray("segs").objs().ifEmpty { b.optJSONArray("tracks").objs() }
                 me.tracks = segs.map { Tr(it.d("start"), it.d("duration"), it.s("url")) }
-                art = Uri.parse(Api.url(b.s("cover")))
+                // (through the phone's own picture link: the lock screen and the car can't send the sign-in)
+                art = ArtProvider.uri(b.s("cover")) ?: Uri.parse(Api.url(b.s("cover")))
             }
             if (me.tracks.isEmpty()) { say("That book has no audio."); bk = null; mode = Mode.NONE; return@launchSafe }
             val serverPos = if (b != null && b.err().isEmpty()) (if (b.b("finished")) 0.0 else b.d("position")) else (off?.pos ?: 0.0)
@@ -1034,23 +1128,24 @@ object Engine {
                 val saved = Offline.done(item, kind)
                 if (saved != null) {
                     if (more && Prefs.str("dl_next_wifi") == "1" && !onMobileData) launchSafe {
-                        val nx = Api.get("/api/play/listen/next?item=${enc(item)}").optJSONObject("item")
+                        val nx = Api.get("/api/play/listen/next?item=${enc(item)}" + (if (video) "&kind=video" else "")).optJSONObject("item")
                         if (nx != null && Offline.find(Item(nx).id, kind) == null) Offline.download(Item(nx), kind, saved.quality)
                     }
                     if (Prefs.str("dl_remove_done") == "1") scope.launch { delay(2000); Offline.remove(saved) }
                 }
-                if (!more) { stopPhone(true); say("Finished $title."); return }
+                if (!more) { stopPhone(true); forgetLast(); say("Finished $title."); return }
                 launchSafe {
-                    val d = Api.get("/api/play/listen/next?item=${enc(item)}")
+                    // the video: simply the next episode; just the audio: the next one with audio description
+                    val d = Api.get("/api/play/listen/next?item=${enc(item)}" + (if (video) "&kind=video" else ""))
                     val nx = d.optJSONObject("item")
-                    if (nx == null) { stopPhone(true); say("That was the last episode."); return@launchSafe }
+                    if (nx == null) { stopPhone(true); forgetLast(); say("That was the last episode."); return@launchSafe }
                     val n = Item(nx)
                     say("Next: ${n.label}.")
                     if (video) videoStart(n.id, n.label, false) else listenStart(n.id, n.label, false)
                 }
             }
             Mode.BOOK -> {
-                val b = bk; val t = b?.title ?: ""; savePlace(true); stopPhone(true); say("Finished $t.")
+                val b = bk; val t = b?.title ?: ""; savePlace(true); stopPhone(true); forgetLast(); say("Finished $t.")
                 val saved = b?.let { Offline.done(it.id, "book") }
                 if (saved != null && Prefs.str("dl_remove_done") == "1") scope.launch { delay(2000); Offline.remove(saved) }
             }
@@ -1070,6 +1165,12 @@ object Engine {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (!isPlaying && mode != Mode.NONE && exo.playbackState == Player.STATE_READY) savePlace()
             tick++
+        }
+        // playing together: the headphones came out (or another app took the sound) - it pauses for everyone,
+        // instead of the phone being started again on its loudspeaker a moment later
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (!playWhenReady && tg != null && (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY ||
+                    reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS)) tgPauseHere()
         }
         override fun onPlayerError(error: PlaybackException) {
             recover(error)
@@ -1138,7 +1239,7 @@ object Engine {
                     val video = mode == Mode.VIDEO
                     savePlace()
                     launchSafe {
-                        val d = Api.get("/api/play/listen/next?item=${enc(item)}")
+                        val d = Api.get("/api/play/listen/next?item=${enc(item)}" + (if (video) "&kind=video" else ""))
                         val nx = d.optJSONObject("item")
                         if (nx == null) { say("There is no next episode."); return@launchSafe }
                         val n = Item(nx)
@@ -1149,11 +1250,17 @@ object Engine {
         }
     }
 
-    /** The lock screen, notification, headset or the video's own controls. True = handled here. */
-    fun onTransport(c: String): Boolean {
+    /** The lock screen, notification, headset or the car. True = handled here.
+     *  Previous and next are 30 seconds back and forward (a tap on the headset never moves her far from her place;
+     *  chapters and episodes are chosen in the app). Stop (Hey Google, the headset, the car) is the app's own Stop. */
+    fun onTransport(c0: String): Boolean {
+        val c = when (c0) { "prev" -> "back30"; "next" -> "fwd30"; else -> c0 }
         if (tg != null) { tgCmd(c); return true }
-        if (mode == Mode.BOOK && (c == "next" || c == "prev")) { phoneCmd(c); return true }
-        if ((mode == Mode.AUDIO || mode == Mode.VIDEO) && c == "next") { phoneCmd("next"); return true }
+        if (mode == Mode.NONE) return false
+        when (c) {
+            "back30", "fwd30" -> { phoneCmd(c); return true }       // a book: across its pieces too
+            "stop" -> { stopPhone(false); return true }
+        }
         return false
     }
 
@@ -1250,6 +1357,10 @@ object Engine {
     class Tg(val room: String) {
         var kind = ""; var role = ""; var iseq = 0; var iseqLoaded = 0; var msgSeq = 0; var jseq = 0; var waitingAhead = false
         var last = JSONObject(); var rtt = 0.15
+        var readyIseq = -1          // the item the PC has heard this phone is ready with (it then says where to go)
+        var held = false            // paused here (headphones out): not started again until the room has paused
+        var heldAsk = 0L
+        var rejoining = false
     }
     var tg by mutableStateOf<Tg?>(null)
     var invites by mutableStateOf(listOf<JSONObject>())
@@ -1337,20 +1448,28 @@ object Engine {
                 "buf" to if (mBuf()) "1" else "0", "iseq" to t.iseqLoaded.toString(),
                 // which skip this phone has got to, and whether it is still loading there (everyone waits for it)
                 "jseq" to t.jseq.toString(), "ld" to if (!rd || exo.playbackState == Player.STATE_BUFFERING) "1" else "0",
-                "sk" to skips.toString(), "stl" to stalls.toString()))
+                "sk" to skips.toString(), "stl" to stalls.toString(),
+                // how long a beat takes there and back here (the PC allows for it when it works out who is behind)
+                "rtt" to t.rtt.toString()))
             if (tg !== t) return
             val r = (SystemClock.elapsedRealtime() - t0) / 1000.0
             if (r < 3) t.rtt = t.rtt * 0.7 + r * 0.3
-            tgApply(d)
+            tgApply(d, readyBeat = rd)
         } catch (e: ApiError) {
             if (e.login) signedOut(e.message ?: "")
         }
     }
 
-    private fun tgApply(d: JSONObject) {
+    private fun tgApply(d: JSONObject, readyBeat: Boolean = false) {
         val t = tg ?: return
-        if (d.b("gone")) { tgEnd(if (d.b("left")) null else d.s("msg").ifEmpty { "Playing together has ended." }); return }
+        if (d.b("gone")) {
+            val msg = d.s("msg").ifEmpty { "Playing together has ended." }
+            if (d.b("left")) tgEnd(null) else tgRejoin(t, msg)
+            return
+        }
         if (d.s("id").isEmpty()) return
+        // the first answer to "ready": a phone that joined late (or is back) is told there to go to where the others are
+        if (readyBeat && d.i("iseq") == t.iseqLoaded) t.readyIseq = t.iseqLoaded
         t.last = d
         if (d.s("role").isNotEmpty()) t.role = d.s("role")
         t.kind = d.s("kind")
@@ -1414,7 +1533,17 @@ object Engine {
     private fun tgSync(d: JSONObject) {
         val t = tg ?: return
         val base = d.d("rate").let { if (it > 0) it else 1.0 }
-        val run = d.b("run")
+        // paused here (headphones out): not started again on the loudspeaker until the room has paused too (asked
+        // again every few seconds if the pause didn't get through) or she presses Play
+        if (t.held) {
+            val now = SystemClock.elapsedRealtime()
+            if (!d.b("want")) t.held = false
+            else if (now - t.heldAsk > 5000) { t.heldAsk = now; tgControl("pause") }
+        }
+        // ready, but the PC hasn't answered that yet: it may say to go to where the others are first - nothing is
+        // played from here until then (she hasn't heard any of it yet, so nothing is missed)
+        if (t.readyIseq != t.iseqLoaded) { if (exo.playWhenReady) exo.pause(); return }
+        val run = d.b("run") && !t.held
         // a little ahead by how late this phone's sound reaches the ears (Bluetooth headphones), so both hear it together
         val target = d.d("pos") + (if (run) t.rtt / 2 * base else 0.0) + outputDelay() * base
         val diff = mTime() - target
@@ -1482,6 +1611,36 @@ object Engine {
         return if (btOn) 0.2 else 0.0
     }
 
+    /** The headphones came out (or the sound was taken) while playing together: a pause for everyone. */
+    private fun tgPauseHere() {
+        val t = tg ?: return
+        t.held = true; t.heldAsk = SystemClock.elapsedRealtime()
+        tgControl("pause", emptyMap(), "Paused for everyone.")
+    }
+
+    /** The PC let go of this phone (no signal for a few minutes): it kept playing, and joins the same room again by
+     *  itself, then goes to where the others are. Only when the room has really ended does it stop. */
+    private fun tgRejoin(t: Tg, msg: String) {
+        if (t.rejoining) return
+        t.rejoining = true
+        scope.launch {
+            val d = try {
+                Api.post("/api/play/together/join", mapOf("cid" to Prefs.cid, "room" to t.room, "mode" to tgMode()))
+            } catch (e: ApiError) {
+                t.rejoining = false
+                if (e.login && tg === t) signedOut(e.message ?: "")
+                return@launch                                   // no connection yet: the next beat tries again
+            } catch (e: CancellationException) { throw e } catch (e: Exception) { t.rejoining = false; return@launch }
+            if (tg !== t) return@launch
+            t.rejoining = false
+            if (d.err().isNotEmpty() || d.s("id").isEmpty() || d.b("gone")) { tgEnd(msg); return@launch }
+            t.jseq = -1                 // (so it goes straight to where the others are)
+            t.msgSeq = d.i("msg_seq")
+            say("Back with the others.")
+            tgApply(d)
+        }
+    }
+
     fun tgControl(action: String, extra: Map<String, String> = emptyMap(), okText: String? = null) {
         val t = tg ?: return
         launchSafe {
@@ -1502,6 +1661,7 @@ object Engine {
         if (c == "stop") { tgStopAll(); return }
         if (c == "playpause") c = if (d.b("want") && !d.b("waiting")) "pause" else "play"
         if (c == "unpause") c = "play"
+        if (c == "play") t.held = false
         if (c == "play") { tgControl("play", emptyMap(), if (d.b("waiting")) "Starting." else "Playing."); return }
         if (c == "pause") { tgControl("pause", emptyMap(), "Paused."); return }
         val now = if (mReady()) mTime() else d.d("pos")
@@ -1522,18 +1682,44 @@ object Engine {
         if (c == "next") tgControl("next")
     }
 
-    /** Stop for everyone: the other phones stop too (and are told who stopped it). */
+    /** Stop for everyone: the other phones stop too (and are told who stopped it). Tried a few times; she's told if
+     *  the PC couldn't be reached (the others may then still be playing). */
     fun tgStopAll() {
         val t = tg ?: return
         seenInvites.add(t.room)
         tgJob?.cancel()
         tg = null
         stopPhone(true)
-        say("Stopped for everyone.")
         scope.launch {
-            try { Api.post("/api/play/together/control", mapOf("cid" to Prefs.cid, "room" to t.room, "action" to "stop")) } catch (e: Exception) { }
-            pollInvites()
+            var ok = false
+            for (i in 0 until 4) {
+                if (i > 0) delay(2000L * i)
+                try {
+                    val d = Api.post("/api/play/together/control", mapOf("cid" to Prefs.cid, "room" to t.room, "action" to "stop"))
+                    ok = d.b("gone") || d.err().isEmpty()
+                } catch (e: ApiError) { if (e.login) break } catch (e: CancellationException) { throw e } catch (e: Exception) { }
+                if (ok) break
+            }
+            say(if (ok) "Stopped for everyone." else "Couldn't reach the PC - the others may still be playing.")
+            try { pollInvites() } catch (e: Exception) { }
         }
+    }
+
+    /** Stop, from the app's own buttons: playing together, she's asked first (it stops the others too). */
+    var askStopAll by mutableStateOf<(() -> Unit)?>(null)
+    fun stopPressed(after: () -> Unit = {}) {
+        if (tg != null) { askStopAll = after; return }
+        cmd("stop"); after()
+    }
+
+    /** The app was swiped away: playing together and not playing now, it leaves the room - so the others can't
+     *  start it again later on a phone with no notification. True if it left. */
+    fun leaveIfIdle(playing: Boolean): Boolean {
+        val t = tg ?: return false
+        val roomPlays = t.last.b("want") && !t.last.b("waiting")
+        if (roomPlays && (playing || t.waitingAhead)) return false
+        tgLeave(true)
+        return true
     }
 
     fun tgLeave(quiet: Boolean) {
