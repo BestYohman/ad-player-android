@@ -106,6 +106,26 @@ object Api {
         me.optJSONArray("home_urls")?.let { Prefs.put("home_urls", it.toString()) }
     }
 
+    /** The key for the home-address check, given at sign-in over the address typed in (never on a home address). */
+    fun rememberLanKey(j: JSONObject) {
+        val id = j.s("lan_proof_id"); val key = j.s("lan_proof_key")
+        if (id.isNotEmpty() && key.isNotEmpty()) { Prefs.put("lan_id", id); Prefs.put("lan_key", key) }
+    }
+    fun forgetLanKey() { Prefs.put("lan_id", ""); Prefs.put("lan_key", "") }
+    val hasLanKey: Boolean get() = Prefs.str("lan_key").isNotEmpty() && Prefs.str("lan_id").isNotEmpty()
+
+    /** Signed in before the PC gave keys: fetch it over the address typed in. */
+    suspend fun fetchLanKey() {
+        if (hasLanKey || Prefs.token.isEmpty()) return
+        try { rememberLanKey(get(normalize(Prefs.server) + "/api/play/me?lan_key=1")) } catch (e: Exception) { }
+    }
+
+    private fun hmacHex(key: String, msg: String): String {
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+        mac.init(javax.crypto.spec.SecretKeySpec(key.toByteArray(), "HmacSHA256"))
+        return mac.doFinal(msg.toByteArray()).joinToString("") { "%02x".format(it) }
+    }
+
     /** For trying the home addresses: never sends the sign-in (on someone else's Wi-Fi that address can be anyone). */
     private val quick: OkHttpClient by lazy {
         OkHttpClient.Builder().connectTimeout(1500, TimeUnit.MILLISECONDS).callTimeout(2500, TimeUnit.MILLISECONDS)
@@ -114,16 +134,27 @@ object Api {
 
     /** Which address to use: on Wi-Fi, this PC's home address if it answers (and it's the same PC); otherwise the
      *  address typed in (the web address away from home). The home address is asked without the sign-in, and only
-     *  used (and sent the sign-in) once it answers with the id this PC gave over the address typed in. */
+     *  used (and sent the sign-in) once it proves it's this PC: it answers a random question (nonce) with the key
+     *  this phone got at sign-in (HMAC-SHA256). Signed in before there were keys: the id this PC gave over the
+     *  address typed in, until the key is fetched. */
     suspend fun chooseAddress(onWifi: Boolean): String = withContext(Dispatchers.IO) {
         val away = normalize(Prefs.server)
         val id = Prefs.str("server_id")
-        if (!onWifi || id.isEmpty()) return@withContext away
+        val withKey = hasLanKey
+        if (!onWifi || (!withKey && id.isEmpty())) return@withContext away
         for (h in homeUrls()) {
             if (h == away) return@withContext away
             try {
-                quick.newCall(Request.Builder().url("$h/api/play/me").build()).execute().use { r ->
-                    if (r.isSuccessful && JSONObject(r.body?.string() ?: "{}").s("server_id") == id) return@withContext h
+                val nonce = java.security.SecureRandom().let { r -> ByteArray(16).also { r.nextBytes(it) } }
+                    .joinToString("") { "%02x".format(it) }
+                val q = if (withKey) "?nonce=$nonce&kid=${enc(Prefs.str("lan_id"))}" else ""
+                quick.newCall(Request.Builder().url("$h/api/play/me$q").build()).execute().use { r ->
+                    if (!r.isSuccessful) return@use
+                    val j = JSONObject(r.body?.string() ?: "{}")
+                    val ok = if (withKey) java.security.MessageDigest.isEqual(
+                        j.s("lan_proof").toByteArray(), hmacHex(Prefs.str("lan_key"), nonce).toByteArray())
+                    else j.s("server_id") == id
+                    if (ok) return@withContext h
                 }
             } catch (e: Exception) { }
         }

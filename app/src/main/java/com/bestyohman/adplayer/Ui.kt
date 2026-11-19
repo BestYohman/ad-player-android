@@ -50,7 +50,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,7 +66,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -73,6 +77,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.material3.Checkbox
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -185,6 +196,7 @@ fun ServerScreen() {
 fun SignInScreen() {
     var user by remember { mutableStateOf("") }
     var pw by remember { mutableStateOf("") }
+    var showPw by remember { mutableStateOf(false) }
     val go: () -> Unit = {
         if (user.isBlank()) Engine.say("Type your user name.") else Engine.signIn(user.trim(), pw)
     }
@@ -195,14 +207,22 @@ fun SignInScreen() {
         OutlinedTextField(
             value = user, onValueChange = { user = it }, label = { Text("User name") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Next),
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp).semantics { contentType = ContentType.Username }
         )
         OutlinedTextField(
             value = pw, onValueChange = { pw = it }, label = { Text("Password") }, singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
+            visualTransformation = if (showPw) VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { go() }), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+            keyboardActions = KeyboardActions(onGo = { go() }),
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp).semantics { contentType = ContentType.Password }
         )
+        Row(
+            Modifier.toggleable(value = showPw, role = Role.Checkbox, onValueChange = { showPw = it }).padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(checked = showPw, onCheckedChange = null)
+            Text("Show password", Modifier.padding(start = 8.dp))
+        }
         Button(onClick = go, modifier = Modifier.padding(top = 12.dp)) { Text("Sign in") }
         TextButton(onClick = { Engine.screen = "server" }) { Text("Change the PC address") }
     }
@@ -211,10 +231,11 @@ fun SignInScreen() {
 // ------------------------------------------------------------------------------------ the main page
 @Composable
 fun MainScreen(act: MainActivity) {
-    val st = Engine.status()
+    // only whether something plays (the time, every second, is read inside Now playing)
+    val playing by remember { derivedStateOf { Engine.status().playing } }
     val fs = Engine.fullscreen && Engine.vd != null
     LaunchedEffect(fs) { act.setFullscreen(fs) }
-    BackHandler(enabled = fs || Engine.stack.size > 1 || (Engine.browse && st.playing)) {
+    BackHandler(enabled = fs || Engine.stack.size > 1 || (Engine.browse && playing)) {
         when {
             fs -> Engine.fullscreen = false
             Engine.stack.size > 1 -> Engine.back()
@@ -246,10 +267,10 @@ fun MainScreen(act: MainActivity) {
                 }
             }
             if (Engine.invites.isNotEmpty() && Engine.tg == null) full { Invites() }
-            if (st.playing && !Engine.browse) {
-                full { NowPlaying(st) }
+            if (playing && !Engine.browse) {
+                full { NowPlaying() }
             } else {
-                if (st.playing) full { Button(onClick = { Engine.browse = false }, modifier = Modifier.fillMaxWidth()) { Text("Back to Now playing") } }
+                if (playing) full { MiniBar() }
                 full { WhereSection() }
                 full { FindSection() }
                 listSection(landSpan)
@@ -307,6 +328,7 @@ fun ChoiceDialog(title: String, options: List<Pair<String, String>>, selected: S
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun WhereSection() {
     var open by remember { mutableStateOf(false) }
@@ -320,12 +342,12 @@ private fun WhereSection() {
         TextButton(onClick = { Engine.refreshDevices() }) { Text("Refresh TV list") }
         if (Engine.devHelp.isNotEmpty()) Text(Engine.devHelp, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("books" to "Audiobooks", "shows" to "Shows", "movies" to "Movies").forEach { (k, l) ->
                 val on = Engine.what == k
-                val m = Modifier.weight(1f).semantics { selected = on }
-                if (on) Button(onClick = { Engine.pickWhat(k) }, modifier = m, contentPadding = PaddingValues(4.dp)) { Text(l, maxLines = 1) }
-                else OutlinedButton(onClick = { Engine.pickWhat(k) }, modifier = m, contentPadding = PaddingValues(4.dp)) { Text(l, maxLines = 1) }
+                val m = Modifier.semantics { selected = on }
+                if (on) Button(onClick = { Engine.pickWhat(k) }, modifier = m) { Text(l, textAlign = TextAlign.Center) }
+                else OutlinedButton(onClick = { Engine.pickWhat(k) }, modifier = m) { Text(l, textAlign = TextAlign.Center) }
             }
         }
         if (Engine.dev == "__video") QualityButton()
@@ -363,6 +385,7 @@ private fun FindSection() {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AccountSection() {
     val m = Engine.me ?: return
@@ -378,7 +401,7 @@ private fun AccountSection() {
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp)
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { Engine.signOut() }) { Text("Sign out") }
             OutlinedButton(onClick = { Engine.screen = "server" }) { Text("Change the PC address") }
         }
@@ -420,12 +443,50 @@ fun QualityButton() {
     if (open) ChoiceDialog("Video quality (megabits a second)", Engine.qualities, Engine.quality, { Engine.chooseQuality(it) }, { open = false })
 }
 
+/** "Playing" / "Paused": TalkBack says it when it changes (a polite live region). */
 @Composable
-fun NowPlaying(st: Engine.St) {
+fun PlayStateLine(paused: Boolean, modifier: Modifier = Modifier, color: Color = Color.Unspecified, size: TextUnit = TextUnit.Unspecified) {
+    Text(if (paused) "Paused" else "Playing", modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = color, fontSize = size)
+}
+
+/** Browsing while something plays: a small bar with its picture, Play / Pause, and back to Now playing. */
+@Composable
+private fun MiniBar() {
+    val st = Engine.status()
+    val b = Engine.bk; val v = Engine.vd; val l = Engine.loc
+    val pic = when {
+        b != null -> "/api/play/books/cover/${b.id}"
+        v != null -> "/api/play/img/${v.item}/Primary"
+        l != null -> "/api/play/img/${l.item}/Primary"
+        else -> ""
+    }
+    val title = b?.title ?: v?.title ?: l?.title ?: st.title
+    Card(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (pic.isNotEmpty()) AsyncImage(
+                model = Api.url(pic) + (if ("/books/" in pic) "" else "?w=160"), contentDescription = null, imageLoader = Img.loader,
+                contentScale = ContentScale.Crop, modifier = Modifier.size(52.dp).clip(RoundedCornerShape(6.dp))
+            )
+            Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                if (title.isNotEmpty()) Text(title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                PlayStateLine(st.paused, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            OutlinedButton(onClick = { Engine.cmd("playpause") }) { Text(if (st.paused) "Play" else "Pause") }
+        }
+        Button(onClick = { Engine.browse = false }, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(bottom = 8.dp)) {
+            Text("Back to Now playing")
+        }
+    }
+}
+
+@Composable
+fun NowPlaying() {
+    val st = Engine.status()
     var speedOpen by remember { mutableStateOf(false) }
     var sleepOpen by remember { mutableStateOf(false) }
     Section {
         Heading("Now playing")
+        PlayStateLine(st.paused, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (st.video && Engine.vd != null) VideoView(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)))
         Text(st.text, Modifier.padding(vertical = 8.dp))
         val b = mutableListOf<Triple<String, Boolean, () -> Unit>>()
@@ -494,6 +555,12 @@ private fun noneText(kind: String): String = when {
     else -> "Nothing found."
 }
 
+/** Each item with a key of its own (its id; the same one twice gets "#2"), so the list keeps its place when it changes. */
+private fun keyed(list: List<Item>): List<Pair<String, Item>> {
+    val seen = HashMap<String, Int>()
+    return list.map { val k = "${it.type}:${it.id}"; val n = (seen[k] ?: 0) + 1; seen[k] = n; (if (n == 1) k else "$k#$n") to it }
+}
+
 private fun LazyGridScope.listSection(landSpan: Int) {
     val v = Engine.stack.lastOrNull() ?: return
     val list = Engine.items
@@ -510,17 +577,17 @@ private fun LazyGridScope.listSection(landSpan: Int) {
     if (list.isEmpty()) { full { Text(noneText(v.kind)) }; return }
     val rich = Engine.watchUI && !v.kind.startsWith("books_") && v.kind != "requests"
     if (!rich) {
-        items(list, span = { GridItemSpan(maxLineSpan) }) { SimpleRow(it, v) }
+        items(keyed(list), key = { it.first }, span = { GridItemSpan(maxLineSpan) }) { SimpleRow(it.second, v) }
         return
     }
     when {
-        v.kind.startsWith("continue") -> items(list, span = { GridItemSpan(landSpan) }) { PosterCard(it, true) }
-        v.kind == "episodes" -> items(list, span = { GridItemSpan(maxLineSpan) }) { EpisodeRow(it) }
+        v.kind.startsWith("continue") -> items(keyed(list), key = { it.first }, span = { GridItemSpan(landSpan) }) { PosterCard(it.second, true) }
+        v.kind == "episodes" -> items(keyed(list), key = { it.first }, span = { GridItemSpan(maxLineSpan) }) { EpisodeRow(it.second) }
         else -> {
             val big = list.filter { it.type == "Series" || it.type == "Movie" || it.type == "Season" }
             val eps = list.filter { it.type == "Episode" }
-            items(big, span = { GridItemSpan(2) }) { PosterCard(it, false) }
-            items(eps, span = { GridItemSpan(maxLineSpan) }) { EpisodeRow(it) }
+            items(keyed(big), key = { it.first }, span = { GridItemSpan(2) }) { PosterCard(it.second, false) }
+            items(keyed(eps), key = { it.first }, span = { GridItemSpan(maxLineSpan) }) { EpisodeRow(it.second) }
         }
     }
 }
@@ -531,16 +598,26 @@ private fun LazyGridScope.downloads() {
         full { Text("Nothing downloaded yet. Use Download on a show, movie or audiobook - it then plays with no connection at all.") }
         return
     }
-    items(list, span = { GridItemSpan(maxLineSpan) }) { DownloadRow(it) }
+    items(list, key = { "dl:" + it.kind + ":" + it.id }, span = { GridItemSpan(maxLineSpan) }) { DownloadRow(it) }
 }
 
+/** How a download is going, in steps (getting ready, 25, 50, 75 percent, downloaded): TalkBack says each step
+ *  (a polite live region). While one is on the screen, "... is downloaded" isn't said a second time. */
+@Composable
+fun DownloadLive(s: Offline.Saved, color: Color, modifier: Modifier = Modifier) {
+    DisposableEffect(Unit) { Offline.liveShown++; onDispose { Offline.liveShown-- } }
+    Text(s.liveText(), modifier.semantics { liveRegion = LiveRegionMode.Polite }, color = color, fontSize = 13.sp)
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DownloadRow(s: Offline.Saved) {
     Column(Modifier.fillMaxWidth()) {
         HorizontalDivider()
         Text("${s.title} - ${s.kindText()}", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
         Text(Offline.detail(s).joinToString(". ") + ".", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        DownloadLive(s, MaterialTheme.colorScheme.onSurfaceVariant)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (s.done) Button(onClick = { Engine.playDownload(s) }, modifier = Modifier.semantics { contentDescription = "Play ${s.title}" }) { Text("Play") }
             OutlinedButton(
                 onClick = { Offline.remove(s) },
@@ -602,7 +679,7 @@ private fun LazyGridScope.detail(v: Engine.View) {
         Engine.seasons.isEmpty() && eps == null -> full { Text("Loading…") }
         eps == null -> full { Text("Loading…") }
         eps.isEmpty() -> full { Text("No episodes.") }
-        else -> items(eps, span = { GridItemSpan(maxLineSpan) }) { EpisodeRow(it) }
+        else -> items(keyed(eps), key = { it.first }, span = { GridItemSpan(maxLineSpan) }) { EpisodeRow(it.second) }
     }
 }
 
@@ -702,6 +779,7 @@ private fun EpisodeRow(item: Item) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DetailHeader(item: Item) {
     Column(Modifier.fillMaxWidth()) {
@@ -723,7 +801,7 @@ private fun DetailHeader(item: Item) {
             }
         }
         if (item.type == "Movie") {
-            Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { Engine.start(item, item.resume.isNotEmpty()) }) {
                     Text(if (item.resume.isNotEmpty()) "Resume from ${item.resume}" else "Play")
                 }
@@ -732,7 +810,7 @@ private fun DetailHeader(item: Item) {
                 if (item.resume.isNotEmpty()) OutlinedButton(onClick = { Engine.start(item, false) }) { Text("Start over") }
             }
         }
-        Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FavButton(item)
             if (item.hasAd == false) RequestButton(item)
             if (item.type == "Movie") DownloadButton(item)
@@ -834,7 +912,7 @@ private fun SimpleRow(item: Item, v: Engine.View) {
                 RowButton(item.label + (if (item.count > 0) ", ${item.count} seasons" else "") + (if (item.hasAd == false) ", no audio description" else "")) {
                     Engine.push(Engine.View("seasons", item.id, "${item.label} seasons"))
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FavButton(item)
                     if (item.hasAd == false) RequestButton(item)
                 }

@@ -56,28 +56,95 @@ jobs:
           git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "Build ${{ github.run_number }} failed"
           git push -fq "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" HEAD:refs/heads/ci-log
 
-      - name: Name the app
-        run: cp app/build/outputs/apk/release/app-release.apk ADPlayer.apk
+      - name: Sign with the new key too (key rotation)
+        env:
+          NEW_KEYSTORE_B64: ${{ secrets.NEW_KEYSTORE_B64 }}
+          NEW_KEY_PASSWORD: ${{ secrets.NEW_KEY_PASSWORD }}
+          NEW_KEY_ALIAS: ${{ secrets.NEW_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          SRC=app/build/outputs/apk/release/app-release.apk
+          if [ -z "${NEW_KEYSTORE_B64:-}" ] || [ -z "${NEW_KEY_PASSWORD:-}" ]; then
+            cp "$SRC" ADPlayer.apk
+            echo "::warning::NEW_KEYSTORE_B64 / NEW_KEY_PASSWORD not set: the app is signed with the old key only."
+            echo "> **Warning:** the release key secrets (NEW_KEYSTORE_B64, NEW_KEY_PASSWORD, NEW_KEY_ALIAS) are not set, so this APK is signed with the old key only." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
+          APKSIGNER="${BT}apksigner"
+          echo "apksigner: $APKSIGNER"
+          ALIAS="${NEW_KEY_ALIAS:-adplayer2}"
+          K="$RUNNER_TEMP/keys"; mkdir -p "$K"
+          echo "$NEW_KEYSTORE_B64" | base64 -d > "$K/new.jks"
+          # the old key hands over to the new one (and may not take over again: rollback off)
+          "$APKSIGNER" rotate --out "$K/lineage.bin" \
+            --old-signer --ks app/adplayer.keystore --ks-pass pass:adplayer --ks-key-alias adplayer --set-rollback false \
+            --new-signer --ks "$K/new.jks" --ks-pass env:NEW_KEY_PASSWORD --ks-key-alias "$ALIAS"
+          # v1/v2 with the old key (older phones), v3 with the new key and the lineage (Android 9 and newer)
+          "$APKSIGNER" sign --lineage "$K/lineage.bin" --rotation-min-sdk-version 28 --v4-signing-enabled false \
+            --ks app/adplayer.keystore --ks-pass pass:adplayer --ks-key-alias adplayer \
+            --next-signer --ks "$K/new.jks" --ks-pass env:NEW_KEY_PASSWORD --ks-key-alias "$ALIAS" \
+            --out ADPlayer.apk "$SRC"
+          rm -rf "$K"
+          "$APKSIGNER" verify -v --print-certs ADPlayer.apk | tee verify.txt
+          grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" verify.txt
+          grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" verify.txt
+          { echo "## Signing"; echo '```'; grep -E "^Verified|Signer #|certificate SHA-256" verify.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: version.json (what the app compares and checks before installing)
+        run: |
+          V=$(tr -d '[:space:]' < VERSION)
+          SIZE=$(stat -c %s ADPlayer.apk)
+          SHA=$(sha256sum ADPlayer.apk | cut -d' ' -f1)
+          printf '{"version": "%s", "build": %s, "size": %s, "sha256": "%s"}\n' "$V" "$GITHUB_RUN_NUMBER" "$SIZE" "$SHA" > version.json
+          cat version.json
 
       - uses: actions/upload-artifact@v4
         with:
           name: ADPlayer
-          path: ADPlayer.apk
+          path: |
+            ADPlayer.apk
+            version.json
+
+      - name: Lint (never fails the build)
+        continue-on-error: true
+        run: |
+          gradle :app:lintRelease --no-daemon --console=plain > lint.log 2>&1 || true
+          R=app/build/reports/lint-results-release.xml
+          if [ -f "$R" ]; then
+            E=$(grep -c 'severity="Error"' "$R" || true); F=$(grep -c 'severity="Fatal"' "$R" || true); W=$(grep -c 'severity="Warning"' "$R" || true)
+            { echo "## Lint"; echo "Errors: $E, fatal: $F, warnings: $W"; echo '```';
+              { grep -E 'severity="(Fatal|Error)"' -A8 "$R" | grep -oE '(id|message|file|line)="[^"]*"' | sed -e "s#$PWD/##" | head -80; } || true
+              echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            { echo "## Lint"; echo "Lint didn't run (see the step's log)."; } >> "$GITHUB_STEP_SUMMARY"
+            tail -30 lint.log
+          fi
 
       - name: Publish this version, and as "AD Player (latest)"
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           V=$(tr -d '[:space:]' < VERSION)
           # what changed in this version: its part of CHANGELOG.md
           awk -v v="$V" '$0 ~ "^## "v" " {on=1; next} /^## / {if(on) exit} on' CHANGELOG.md > notes.md
           printf '\nOn the phone: tap ADPlayer.apk to download it, then open it to install.\n' >> notes.md
+          # this version's own release (a rebuild of the same version replaces its files; version.json has the new build number)
           if gh release view "v$V" >/dev/null 2>&1; then
             gh release upload "v$V" ADPlayer.apk --clobber
+            gh release upload "v$V" version.json --clobber
             gh release edit "v$V" --notes-file notes.md --title "AD Player $V"
           else
-            gh release create "v$V" ADPlayer.apk --title "AD Player $V" --notes-file notes.md --target "$GITHUB_SHA" --latest=false
+            gh release create "v$V" ADPlayer.apk version.json --title "AD Player $V" --notes-file notes.md --target "$GITHUB_SHA" --latest=false
           fi
-          gh release delete latest --yes --cleanup-tag || true
-          gh release create latest ADPlayer.apk --title "AD Player $V (latest)" --notes-file notes.md
+          # "latest" is updated in place (never deleted, so there's always one): its tag moves to this commit, then the files
+          if gh release view latest >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            gh release edit latest --title "AD Player $V (latest)" --notes-file notes.md
+            gh release upload latest ADPlayer.apk --clobber
+            gh release upload latest version.json --clobber
+          else
+            gh release create latest ADPlayer.apk version.json --title "AD Player $V (latest)" --notes-file notes.md --target "$GITHUB_SHA"
+          fi

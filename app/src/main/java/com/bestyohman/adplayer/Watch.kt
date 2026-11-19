@@ -68,6 +68,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -93,7 +97,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -305,10 +312,14 @@ private fun TopBar(title: String?, openDrawer: () -> Unit, solid: Boolean = true
 private fun Avatar(onClick: () -> Unit) {
     val name = Engine.me?.s("name") ?: ""
     Box(
-        Modifier.padding(end = 8.dp).size(36.dp).clip(CircleShape).background(EGreen).clickable(onClick = onClick)
-            .semantics { contentDescription = "Settings - signed in as $name" },
+        Modifier.padding(end = 2.dp).size(48.dp).clip(CircleShape).clickable(onClick = onClick)
+            .semantics { contentDescription = "Settings - signed in as $name"; role = Role.Button },
         contentAlignment = Alignment.Center
-    ) { Text(name.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp) }
+    ) {
+        Box(Modifier.size(36.dp).clip(CircleShape).background(EGreen), contentAlignment = Alignment.Center) {
+            Text(name.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        }
+    }
 }
 
 @Composable
@@ -358,7 +369,8 @@ private fun MiniPlayer() {
     val title = b?.title ?: v?.title ?: Engine.loc?.title ?: st.title.ifEmpty { st.text }
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Row(
         Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 12.dp).clip(RoundedCornerShape(12.dp)).background(ECard)
-            .clickable { if (v != null || b != null || Engine.loc != null) W.player = true else W.go(Page("nowplaying")) }.padding(8.dp),
+            .clickable { if (v != null || b != null || Engine.loc != null) W.player = true else W.go(Page("nowplaying")) }
+            .semantics { liveRegion = LiveRegionMode.Polite }.padding(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(Modifier.size(width = if (b != null) 44.dp else 70.dp, height = 44.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black)) {
@@ -367,7 +379,8 @@ private fun MiniPlayer() {
         Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
             Text(title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
             Text(
-                if (st.tv) "On " + (Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "the TV") else if (Engine.tg != null) "Playing together" else "On this phone",
+                (if (st.paused) "Paused" else "Playing") + " " +
+                    (if (st.tv) "on " + (Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "the TV") else if (Engine.tg != null) "together" else "on this phone"),
                 color = ESub, fontSize = 12.sp, maxLines = 1
             )
         }
@@ -533,13 +546,21 @@ fun UpdateCard() {
         Text("You have ${Update.mine}.", color = ESub, fontSize = 14.sp)
         if (more) Text(Update.notes, color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
         if (Update.message.isNotEmpty()) Text(Update.message, color = Color(0xFFFFB74D), fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
-        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (Update.progress >= 0) Text("Downloading, ${Update.progress} percent…", color = Color.White, fontSize = 15.sp)
-            else {
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (Update.progress >= 0) {
+                // Install greyed out while it downloads
+                Text("Install", color = Color(0xFF8A8A8A), fontSize = 20.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0xFF3A3A3A)).padding(horizontal = 16.dp, vertical = 6.dp)
+                        .semantics { role = Role.Button; disabled() })
+                Text("Downloading, ${Update.progress / 10 * 10} percent…", color = Color.White, fontSize = 15.sp,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+            } else {
                 WhitePill("Install", null, Modifier) { Engine.scope.launch { Update.install(ctx) } }
                 WhitePill(if (more) "Less" else "What's new", null, Modifier, dark = true) { more = !more }
             }
         }
+        if (Update.progress >= 0) LinearProgressIndicator(progress = { Update.progress / 100f }, color = EGreen, trackColor = ECard,
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
     }
 }
 
@@ -584,6 +605,27 @@ private fun Action(label: String, icon: ImageVector, tint: Color = Color.White, 
     }
 }
 
+/** Pull down to bring a page up to date (asks the PC again). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun Refreshable(modifier: Modifier, belowTopBar: Boolean, content: @Composable BoxScope.() -> Unit) {
+    var refreshing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val state = rememberPullToRefreshState()
+    PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = { refreshing = true; W.refresh++; scope.launch { delay(1200); refreshing = false } },
+        modifier = modifier, state = state,
+        indicator = {
+            PullToRefreshDefaults.Indicator(
+                state = state, isRefreshing = refreshing,
+                modifier = Modifier.align(Alignment.TopCenter).then(if (belowTopBar) Modifier.statusBarsPadding().padding(top = 56.dp) else Modifier)
+            )
+        },
+        content = content
+    )
+}
+
 // ------------------------------------------------------------------------------------------- home
 @Composable
 private fun HomePage(p: Page, favorites: Boolean, openDrawer: () -> Unit) {
@@ -591,6 +633,7 @@ private fun HomePage(p: Page, favorites: Boolean, openDrawer: () -> Unit) {
     val (fav, ferr) = rememberData(if (favorites) "/api/play/list?kind=favorites" else null)
     val (books, _) = rememberData(if (favorites || Engine.offline) null else "/api/play/books/list?kind=books_continue")
     Box(Modifier.fillMaxSize()) {
+        Refreshable(Modifier.fillMaxSize(), belowTopBar = true) {
         LazyColumn(Modifier.fillMaxSize(), state = W.list(p), contentPadding = PaddingValues(bottom = 170.dp)) {
             item { Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars)) }
             item { Spacer(Modifier.height(56.dp)) }
@@ -649,6 +692,7 @@ private fun HomePage(p: Page, favorites: Boolean, openDrawer: () -> Unit) {
             }
             posterRow("Latest Audiobooks", home.itemList("books_latest"), 150.dp, square = true, onMore = { W.openTab("books", Page("books")) })
         }
+        }
         TopBar(null, openDrawer)
     }
 }
@@ -668,7 +712,7 @@ private fun GridPage(p: Page, openDrawer: () -> Unit) {
         TopBar(p.title, openDrawer)
         // a library: sort and filter it (kept for next time)
         if (p.kind == "library") LibraryControls(p.id, view) { v -> view = v; LibView.save(p.id, v) }
-        when {
+        Refreshable(Modifier.fillMaxSize(), belowTopBar = false) { when {
             list == null -> Loading(err)
             list.isEmpty() && p.kind == "library" && view.filtersOn > 0 ->
                 Text("Nothing matches these filters.", color = ESub, modifier = Modifier.padding(16.dp))
@@ -693,7 +737,7 @@ private fun GridPage(p: Page, openDrawer: () -> Unit) {
                     items(list) { PosterCard(it, Dp.Unspecified, wide) }
                 }
             }
-        }
+        } }
     }
 }
 
@@ -1065,7 +1109,8 @@ private fun DownloadsPage(p: Page, openDrawer: () -> Unit) {
             return@Column
         }
         LazyColumn(contentPadding = PaddingValues(bottom = 170.dp)) {
-            items(list) { s ->
+            items(list, key = { it.kind + ":" + it.id }) { s ->
+                Column {
                 Row(Modifier.fillMaxWidth().clickable(enabled = s.done) { Engine.playDownload(s) }.padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     val book = s.kind == "book"
@@ -1089,6 +1134,8 @@ private fun DownloadsPage(p: Page, openDrawer: () -> Unit) {
                     IconButton(onClick = { Offline.remove(s) }) {
                         Icon(if (s.done) Ic.Close else Ic.Stop, (if (s.done) "Remove the download of " else "Stop downloading ") + s.title, tint = ESub)
                     }
+                }
+                DownloadLive(s, ESub, Modifier.padding(horizontal = 16.dp))
                 }
             }
         }
@@ -1292,7 +1339,7 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
 private fun NowPlayingPage(p: Page, openDrawer: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         TopBar("Now playing", openDrawer)
-        val st = Engine.status()
+        val playing by remember { derivedStateOf { Engine.status().playing } }
         LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 170.dp)) {
             item {
                 val b = Engine.bk
@@ -1300,7 +1347,7 @@ private fun NowPlayingPage(p: Page, openDrawer: () -> Unit) {
                     Poster(null, "/api/play/books/cover/${b.id}", 480, Modifier.size(260.dp).padding(bottom = 12.dp))
                 }
             }
-            item { if (st.playing) NowPlaying(st) else Text("Nothing is playing.", color = ESub) }
+            item { if (playing) NowPlaying() else Text("Nothing is playing.", color = ESub) }
         }
     }
 }

@@ -50,8 +50,13 @@ object Engine {
     fun say(t: String) {
         if (t.isEmpty()) return
         message = t
+        // "Playing." / "Paused.": said by the "Playing" / "Paused" line on the screen (a polite live region)
+        if (t == "Playing." || t == "Paused.") return
         announcer?.invoke(t)
     }
+
+    /** Shown, not spoken (a live region on the screen says it). */
+    fun show(t: String) { if (t.isNotEmpty()) message = t }
 
     fun launchSafe(block: suspend CoroutineScope.() -> Unit): Job = scope.launch {
         try {
@@ -110,6 +115,7 @@ object Engine {
                 }
                 Api.rememberServer(m)
                 if (!m.b("signed_in") || Prefs.token.isEmpty()) { me = m; screen = "signin"; return@launch }
+                if (!Api.hasLanKey) scope.launch { Api.fetchLanKey() }       // signed in before the PC gave keys
                 me = m
                 Prefs.put("me", m.toString())
                 offline = false
@@ -139,6 +145,7 @@ object Engine {
 
     fun signedOut(msg: String) {
         Prefs.token = ""
+        Api.forgetLanKey()
         me = null
         say(msg)
         screen = "signin"
@@ -149,6 +156,8 @@ object Engine {
         val d = Api.post("/api/play/login", mapOf("user" to user, "password" to pw, "app" to "1"))
         if (d.err().isNotEmpty()) { say(d.err()); return@launchSafe }
         Prefs.token = d.s("token")
+        Api.forgetLanKey()
+        if (!Api.atHome) Api.rememberLanKey(d)                 // (on a home address: fetched over the address typed in)
         say(d.s("message"))
         boot()
     }
@@ -158,6 +167,7 @@ object Engine {
         stopPhone(true)
         try { Api.post("/api/play/logout", emptyMap()) } catch (e: ApiError) { }
         Prefs.token = ""
+        Api.forgetLanKey()
         me = null
         stack.clear()
         screen = "signin"
@@ -423,7 +433,7 @@ object Engine {
         launchSafe {
             flushPlaces()
             // the soundtrack is asked for only when playing together or when she chose one without AD
-            val ask = if (me.tg || any) mapOf("item" to id, "fmt" to "hls", "any" to "1") else mapOf("item" to id, "fmt" to "hls")
+            val ask = mapOf("item" to id, "fmt" to "hls", "any" to if (me.tg || any) "1" else "0")
             var d = Api.post("/api/play/listen/prepare", ask)
             if (loc !== me) return@launchSafe
             if (d.err().isNotEmpty() && d.s("id").isEmpty()) { say(d.err()); loc = null; mode = Mode.NONE; return@launchSafe }

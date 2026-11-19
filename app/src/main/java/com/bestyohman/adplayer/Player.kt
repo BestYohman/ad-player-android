@@ -227,6 +227,7 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
                 Icon(Ic.Group, null, tint = EGreen, modifier = Modifier.size(18.dp))
                 Text(" Playing together", color = EGreen, fontSize = 14.sp)
             }
+            PlayStateLine(!exo.playWhenReady, color = Color(0xFFBDBDBD), size = 14.sp)
             Slider(
                 value = shownPos.toFloat(), valueRange = 0f..dur.toFloat(),
                 onValueChange = { dragging = true; dragTo = it; touch() },

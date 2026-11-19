@@ -5,7 +5,7 @@ mkdir -p shots
 python3 .github/screens/mock.py > shots/mock.log 2>&1 &
 sleep 2
 P=com.bestyohman.adplayer
-adb install -r app/build/outputs/apk/release/app-release.apk
+adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell pm grant $P android.permission.POST_NOTIFICATIONS || true
 shot() { sleep "${2:-3}"; adb exec-out screencap -p > "shots/$1.png"; echo "shot $1"; }
 dump() { adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1; adb pull /sdcard/ui.xml shots/ui.xml >/dev/null 2>&1; }

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
@@ -39,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -120,7 +122,7 @@ fun LibraryControls(lib: String, view: LibView, onChange: (LibView) -> Unit) {
         ModalBottomSheet(onDismissRequest = { sortOpen = false }, sheetState = st, containerColor = SheetBg) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 16.dp)) {
                 Text("Sort By", color = ESub, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp).semantics { heading() }, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 LibSorts.all.forEach { (k, name, newestFirst) ->
                     val on = view.sort == k
                     Row(
@@ -144,18 +146,19 @@ fun LibraryControls(lib: String, view: LibView, onChange: (LibView) -> Unit) {
     }
 
     if (filterOpen) {
-        val (opts, _) = rememberData("/api/play/filters?parent=${enc(lib)}")
+        val (opts, optsErr) = rememberData("/api/play/filters?parent=${enc(lib)}")
         val st = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(onDismissRequest = { filterOpen = false }, sheetState = st, containerColor = SheetBg) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Filters", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text("Filters", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).semantics { heading() })
                     if (view.filtersOn > 0) TextButton(onClick = { onChange(LibView(sort = view.sort, desc = view.desc)) }) { Text("Clear all", color = EGreen) }
                 }
                 Spacer(Modifier.height(8.dp))
                 Choice("Playstate", listOf("" to "Any", "unplayed" to "Unplayed", "played" to "Played", "resumable" to "In progress"), view.state) { onChange(view.copy(state = it)) }
                 Toggle("Favorite", view.fav) { onChange(view.copy(fav = it)) }
                 Toggle("Has audio description", view.ad) { onChange(view.copy(ad = it)) }
+                if (opts == null) Text(optsErr.ifEmpty { "Loading…" }, color = ESub, fontSize = 17.sp, modifier = Modifier.padding(vertical = 8.dp))
                 val genres = opts?.optJSONArray("genres").strs()
                 val ratings = opts?.optJSONArray("ratings").strs()
                 val years = opts?.optJSONArray("years")?.let { a -> (0 until a.length()).map { a.opt(it).toString() } } ?: emptyList()
@@ -187,7 +190,10 @@ private fun Choice(label: String, options: List<Pair<String, String>>, value: St
             }
             DropdownMenu(open, onDismissRequest = { open = false }, modifier = Modifier.heightIn(max = 420.dp)) {
                 options.forEach { (k, name) ->
-                    DropdownMenuItem(text = { Text(name + if (k == value) "  ✓" else "") }, onClick = { open = false; onPick(k) })
+                    DropdownMenuItem(text = { Text(name, fontWeight = if (k == value) FontWeight.Bold else FontWeight.Normal) },
+                        onClick = { open = false; onPick(k) },
+                        trailingIcon = if (k == value) ({ Icon(Ic.Check, null) }) else null,
+                        modifier = Modifier.semantics { selected = k == value })
                 }
             }
         }
@@ -197,7 +203,7 @@ private fun Choice(label: String, options: List<Pair<String, String>>, value: St
 @Composable
 private fun Toggle(label: String, on: Boolean, onSet: (Boolean) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable { onSet(!on) }.semantics(mergeDescendants = true) { role = Role.Switch }.padding(vertical = 10.dp),
+        Modifier.fillMaxWidth().toggleable(value = on, role = Role.Switch, onValueChange = onSet).padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(label, color = Color.White, fontSize = 17.sp, modifier = Modifier.weight(1f))

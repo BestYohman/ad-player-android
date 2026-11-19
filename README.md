@@ -26,5 +26,14 @@ A newer build installs over the old one the same way; the address and sign-in ar
 
 ## Building it yourself (not needed)
 
-`gradle :app:assembleRelease` with JDK 17 and the Android SDK. The app is signed with `app/adplayer.keystore`
-(password `adplayer`), so every build can update the one already installed.
+`gradle :app:assembleRelease` with JDK 17 and the Android SDK. That build is signed with the old key in
+`app/adplayer.keystore` only (it's public, so it's being replaced).
+
+The release key lives in GitHub, not in this folder: the repository's Settings > Secrets and variables > Actions
+has `NEW_KEYSTORE_B64` (the keystore, as base64), `NEW_KEY_PASSWORD` and `NEW_KEY_ALIAS`. After each build the
+workflow signs the app again with a key rotation from the old key to the new one (APK Signature Scheme v3, Android 9
+and newer), so the app already on the phone updates as before, and later updates need the new key. If the secrets
+are missing, the build keeps the old-key app and says so in its summary.
+
+Each release also has `version.json` (version, build number, size, SHA-256): the app uses it to see a rebuilt
+version and to check the download before it installs it.

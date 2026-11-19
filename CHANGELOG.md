@@ -2,6 +2,21 @@
 
 Each version below is a release on GitHub (Releases, "v1.8.0" and so on). The newest is also "AD Player (latest)".
 
+## 1.11.0 - 2026-11-19
+- **Safer sign-in at home:** the app only uses the PC's home address once it has proved it's your PC, with a secret key the phone got when you signed in (needs the PC's app 2.30.4). Your sign-in is never sent to an address that hasn't proved it, and never follows a redirect. An address typed without http:// or https:// uses https unless it's on the home network. The sign-in isn't copied to a backup or a new phone.
+- **Sign-in:** a **Show password** box, and the phone's password manager can fill in your user name and password.
+- **Downloads** wait out a busy or restarting PC and carry on where they stopped. New setting **Download on Wi-Fi only** (on to start). The app says when there isn't enough space on the phone.
+- **TalkBack** says "Playing" or "Paused" after Play or Pause, and how a download is going (getting ready, 25, 50, 75 percent, downloaded). The filter switches say if they're on or off, the chosen sort or filter is read as selected, "Sort By" and "Filters" are headings, and the filters say "Loading…" while their choices come.
+- **Large text:** rows of buttons wrap onto the next line, and Audiobooks, Shows and Movies are no longer cut short.
+- **While browsing**, a small bar shows what's playing, with its picture and Play / Pause.
+- **Pull down** on Home or a library to bring it up to date.
+- **Outside controls:** a stop from Hey Google, the headset, the car or the notification saves your place. Previous and next there are 30 seconds back and forward; chapters and episodes are chosen in the app. After a restart, Play on the headset or in the car carries on with the last book or audio description. "Hey Google, play ... on AD Player" works.
+- **Play together:** headphones out pauses for everyone. A phone that lost the PC joins again by itself, at the same place as the others. Stop asks "Stop for everyone?" first.
+- **The soundtrack** is only played when playing together or when you chose one without audio description, and the app says so.
+- **Android Auto:** pictures, Continue loads faster, lists look right, and an empty list says why.
+- **Updates:** a rebuilt version reaches the phone too, the download is checked before it installs, and Install is greyed out while it downloads.
+- Ready for a new signing key: the update installs over the old app as usual.
+
 ## 1.10.0 - 2026-11-06
 - **Play together** is a button beside each Play (episodes, movies, books, and on a show's, movie's or book's page) instead of a switch. With a TV chosen, Play together moves to the phone by itself. The headphone delay stays in Settings.
 - The library **filters** have their Genre, Parental rating and Year choices again (the PC now collects them from the library itself - needs the PC's app 2.26.0).

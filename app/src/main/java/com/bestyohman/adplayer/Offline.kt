@@ -77,6 +77,14 @@ object Offline {
             else -> "Didn't download" + if (error.isNotEmpty()) ": $error" else ""
         }
 
+        /** The same in steps, for TalkBack to say as it changes: "Moonlit Magic: downloading, 50 percent". */
+        fun liveText(): String = "$title: " + when (state) {
+            "preparing" -> "getting ready" + if (progress >= 25) ", ${progress / 25 * 25} percent" else ""
+            "downloading" -> "downloading" + if (progress >= 25) ", ${progress / 25 * 25} percent" else ""
+            "done" -> "downloaded"
+            else -> "didn't download"
+        }
+
         fun kindText(): String = when (kind) {
             "video" -> "Video" + when (quality) { "medium" -> ", medium quality"; "small" -> ", small"; else -> "" }
             "audio" -> "Audio description"
@@ -85,6 +93,9 @@ object Offline {
     }
 
     val items = mutableStateListOf<Saved>()
+    /** Download lines on the screen that TalkBack follows (then "... is downloaded" is shown, not said again). */
+    var liveShown = 0
+    private fun tell(t: String) = if (liveShown > 0) Engine.show(t) else Engine.say(t)
 
     /** How a download is going right now (not kept): bytes so far, its size, speed, time left, parts. */
     data class Live(
@@ -398,7 +409,7 @@ object Offline {
                 partsDone == fs.size -> {
                     update(s.id, s.kind) { it.copy(state = "done", progress = 100, bytes = total) }
                     live.remove(s.kind + s.id)
-                    Engine.say("${s.title} is downloaded.")
+                    tell("${s.title} is downloaded.")
                     if (s.job.isNotEmpty()) tellStopped(s.job, "done")     // the PC deletes its copy now
                 }
                 else -> {
