@@ -3,6 +3,7 @@ package com.bestyohman.adplayer
 import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
+import android.util.AtomicFile
 import androidx.compose.runtime.mutableStateListOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -13,6 +14,10 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.Executors
+
+/** Saving the list and deleting files, one after another, away from the screen's thread. */
+val disk = Executors.newSingleThreadExecutor()
 
 /**
  * "Download for later": a show, movie or audiobook kept on the phone, so it plays with no connection at all.
@@ -67,7 +72,7 @@ object Offline {
         /** "Downloading, 45 percent" and so on. */
         fun stateText(): String = when (state) {
             "preparing" -> "The PC is getting it ready" + if (progress > 0) ", $progress percent" else ""
-            "downloading" -> "Downloading" + if (progress > 0) ", $progress percent" else ""
+            "downloading" -> (Offline.live[kind + id]?.waiting?.ifEmpty { null } ?: "Downloading") + if (progress > 0) ", $progress percent" else ""
             "done" -> "Downloaded" + if (bytes > 0) ", ${Offline.size(bytes)}" else ""
             else -> "Didn't download" + if (error.isNotEmpty()) ": $error" else ""
         }
@@ -139,7 +144,8 @@ object Offline {
             else -> listOf(s.stateText())
         }
     }
-    private lateinit var store: File
+    private lateinit var store: AtomicFile
+    private lateinit var prev: File                 // the copy before the last save, in case the list can't be read
     private lateinit var dir: File
     private var loaded = false
 
@@ -147,12 +153,16 @@ object Offline {
         if (loaded) return
         loaded = true
         val app = c.applicationContext
-        store = File(app.filesDir, "offline.json")
+        store = AtomicFile(File(app.filesDir, "offline.json"))
+        prev = File(app.filesDir, "offline.prev.json")
         dir = (app.getExternalFilesDir("offline") ?: File(app.filesDir, "offline")).apply { mkdirs() }
         Fetch.init(app)
-        try {
-            if (store.exists()) JSONArray(store.readText()).objs().forEach { items.add(Saved.from(it)) }
-        } catch (e: Exception) { }
+        val list = try {
+            JSONArray(String(store.readFully(), Charsets.UTF_8))
+        } catch (e: Exception) {                            // missing or spoilt: the copy before
+            try { JSONArray(prev.readText()) } catch (x: Exception) { null }
+        }
+        list.objs().forEach { items.add(Saved.from(it)) }
         // downloads Android's own downloader had (before the app fetched them itself): hand them over
         try {
             val dm = app.getSystemService(DownloadManager::class.java)
@@ -166,18 +176,28 @@ object Offline {
                     } catch (e: Exception) { false }
                     if (!ok) {
                         try { dm.remove(id) } catch (e: Exception) { }
-                        try { File(f).delete() } catch (e: Exception) { }             // its half-made file
+                        disk.execute { try { File(f).delete() } catch (e: Exception) { } }   // its half-made file
                     }
                 }
             }
         } catch (e: Exception) { }
     }
 
+    /** Writes the list to a new file and only then swaps it in, so a full phone or the app being stopped halfway
+     *  can't lose it; the one before is kept too. In order, away from the screen's thread. */
     private fun save() {
-        try {
-            val a = JSONArray(); items.forEach { a.put(it.toJson()) }
-            store.writeText(a.toString())
-        } catch (e: Exception) { }
+        val text = try { JSONArray().also { a -> items.toList().forEach { a.put(it.toJson()) } }.toString() } catch (e: Exception) { return }
+        disk.execute {
+            try { if (store.baseFile.exists()) store.baseFile.copyTo(prev, overwrite = true) } catch (e: Exception) { }
+            var out: java.io.FileOutputStream? = null
+            try {
+                out = store.startWrite()
+                out.write(text.toByteArray(Charsets.UTF_8))
+                store.finishWrite(out)
+            } catch (e: Exception) {
+                if (out != null) store.failWrite(out)        // the last good list stays
+            }
+        }
     }
 
     fun find(id: String, kind: String): Saved? = items.firstOrNull { it.id == id && it.kind == kind }
@@ -201,12 +221,19 @@ object Offline {
         if (i >= 0 && kotlin.math.abs(items[i].pos - pos) > 5) { items[i] = items[i].copy(pos = pos, posAt = System.currentTimeMillis()); save() }
     }
 
-    /** Starts fetching [url] (where the PC has it, without the address) into [dest]. */
+    /** Starts fetching [url] (where the PC has it, without the address) into [dest]. One already there (a book's part
+     *  from a try before) is kept. */
     private fun enqueue(url: String, dest: File, title: String): Long {
-        dest.parentFile?.mkdirs()
-        if (dest.exists()) dest.delete()
-        Fetch.start(url, dest, title)
+        if (!have(dest.absolutePath)) Fetch.start(url, dest, title)
         return -1
+    }
+
+    /** Not enough room on the phone for [need] bytes (less what's already fetched)? Then what to say. */
+    private fun noRoom(need: Long, dest: File): String {
+        if (need <= 0) return ""
+        val part = File(dest.absolutePath + ".part").let { if (it.exists()) it.length() else 0L }
+        val free = try { dir.usableSpace } catch (e: Exception) { return "" }
+        return if (free < need - part + 50_000_000L) "not enough space on the phone (needs ${size(need)})" else ""
     }
 
     // ---------------------------------------------------------------- starting a download
@@ -221,51 +248,85 @@ object Offline {
         Engine.launchSafe { prepare(it.id, kind) }
     }
 
+    private val preparing = HashSet<String>()
+
+    /** Asks the PC to make the file and waits for it. No connection: tries again by itself, waiting longer each time. */
     private suspend fun prepare(id: String, kind: String) {
-        try {
-            val q = find(id, kind)?.quality ?: "original"
-            var d = Api.post("/api/play/download/prepare", mapOf("item" to id, "kind" to kind, "quality" to q))
-            while (true) {
-                val s = find(id, kind)
-                if (s == null) {                                    // stopped meanwhile: the PC stops making it too
-                    if (d.s("id").isNotEmpty()) tellStopped(d.s("id"))
-                    return
+        if (!preparing.add(kind + id)) return                  // already waiting for this one
+        try { prepareLoop(id, kind) } finally { preparing.remove(kind + id) }
+    }
+
+    private suspend fun prepareLoop(id: String, kind: String) {
+        var pause = 5_000L
+        var askedAgain = false
+        var d: JSONObject? = null
+        while (true) {
+            try {
+                val q = find(id, kind)?.quality ?: return
+                val job = d?.s("id").orEmpty()
+                var a = if (job.isEmpty()) Api.post("/api/play/download/prepare", mapOf("item" to id, "kind" to kind, "quality" to q))
+                    else Api.get("/api/play/download/job/$job")
+                if (a.err().isNotEmpty() && a.s("id").isEmpty() && job.isNotEmpty() && !askedAgain) {
+                    // the PC forgot it (it restarted): ask once more
+                    askedAgain = true
+                    a = Api.post("/api/play/download/prepare", mapOf("item" to id, "kind" to kind, "quality" to q))
                 }
-                if (d.err().isNotEmpty() || d.s("state") == "failed") {
-                    update(id, kind) { it.copy(state = "failed", error = d.err().ifEmpty { "the PC couldn't make the file" }) }
-                    Engine.say("${s.title} didn't download: ${d.err().ifEmpty { "the PC couldn't make the file" }}.")
-                    return
-                }
-                if (d.s("state") == "ready") {
-                    val url = d.s("url")
-                    val ext = if (url.endsWith(".m4a")) "m4a" else "mp4"
-                    val dest = File(dir, "${kind}_${id}.$ext")
-                    val dmId = enqueue(url, dest, s.title)
-                    update(id, kind) {
-                        it.copy(state = "downloading", progress = 0, job = d.s("id"), url = url, file = dest.absolutePath, dm = dmId,
-                            runtime = d.d("runtime_ticks") / 1e7, bytes = d.optLong("bytes"))
-                    }
-                    return
-                }
-                update(id, kind) { it.copy(progress = d.i("progress"), job = d.s("id")) }
-                // how fast the PC is making the file, over the last 15 seconds
-                val made = d.optLong("made_bytes")
-                val now = System.currentTimeMillis()
-                val q = samples.getOrPut("prep$kind$id") { ArrayDeque() }
-                if (made > 0) q.addLast(now to made)
-                while (q.size > 2 && now - q.first().first > 15_000) q.removeFirst()
-                val rate = if (q.size >= 2 && q.last().first - q.first().first > 1500)
-                    (q.last().second - q.first().second) * 1000.0 / (q.last().first - q.first().first) else 0.0
-                live[kind + id] = Live(method = d.s("method"), speedX = d.d("speed_x"), made = made, madeRate = rate,
-                    est = d.optLong("est_bytes"), eta = if (d.has("eta") && !d.isNull("eta")) d.optLong("eta") else -1)
+                d = a
+                pause = 5_000L
+                if (step(id, kind, a)) return
                 delay(3000)
-                d = Api.get("/api/play/download/job/${d.s("id")}")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ApiError) {
+                if (e.login) return                             // signed out: tried again when the app is next open
+                if (find(id, kind) == null) { d?.s("id")?.takeIf { it.isNotEmpty() }?.let { tellStopped(it) }; return }
+                delay(pause)
+                pause = (pause * 2).coerceAtMost(300_000L)
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: ApiError) {
-            // no connection right now: tried again when the app is next open
         }
+    }
+
+    /** One answer from the PC about the file it's making. True when there's nothing more to wait for. */
+    private fun step(id: String, kind: String, d: JSONObject): Boolean {
+        val s = find(id, kind)
+        if (s == null) {                                    // stopped meanwhile: the PC stops making it too
+            if (d.s("id").isNotEmpty()) tellStopped(d.s("id"))
+            return true
+        }
+        if (d.err().isNotEmpty() || d.s("state") == "failed") {
+            update(id, kind) { it.copy(state = "failed", error = d.err().ifEmpty { "the PC couldn't make the file" }) }
+            Engine.say("${s.title} didn't download: ${d.err().ifEmpty { "the PC couldn't make the file" }}.")
+            return true
+        }
+        if (d.s("state") == "ready") {
+            val url = d.s("url")
+            val ext = if (url.endsWith(".m4a")) "m4a" else "mp4"
+            val dest = File(dir, "${kind}_${id}.$ext")
+            val room = noRoom(d.optLong("bytes"), dest)
+            if (room.isNotEmpty()) {
+                update(id, kind) { it.copy(state = "failed", job = d.s("id"), error = room) }
+                Engine.say("${s.title} didn't download: $room.")
+                return true                                 // (the PC keeps its copy until it's removed here)
+            }
+            val dmId = enqueue(url, dest, s.title)
+            update(id, kind) {
+                it.copy(state = "downloading", progress = 0, job = d.s("id"), url = url, file = dest.absolutePath, dm = dmId,
+                    runtime = d.d("runtime_ticks") / 1e7, bytes = d.optLong("bytes"))
+            }
+            return true
+        }
+        update(id, kind) { it.copy(progress = d.i("progress"), job = d.s("id")) }
+        // how fast the PC is making the file, over the last 15 seconds
+        val made = d.optLong("made_bytes")
+        val now = System.currentTimeMillis()
+        val q = samples.getOrPut("prep$kind$id") { ArrayDeque() }
+        if (made > 0) q.addLast(now to made)
+        while (q.size > 2 && now - q.first().first > 15_000) q.removeFirst()
+        val rate = if (q.size >= 2 && q.last().first - q.first().first > 1500)
+            (q.last().second - q.first().second) * 1000.0 / (q.last().first - q.first().first) else 0.0
+        live[kind + id] = Live(method = d.s("method"), speedX = d.d("speed_x"), made = made, madeRate = rate,
+            est = d.optLong("est_bytes"), eta = if (d.has("eta") && !d.isNull("eta")) d.optLong("eta") else -1)
+        return false
     }
 
     fun downloadBook(it: Item) {
@@ -330,7 +391,7 @@ object Offline {
             }
             when {
                 failed.isNotEmpty() -> {
-                    fs.forEach { Fetch.cancel(it.second) }
+                    fs.forEach { Fetch.drop(it.second) }               // what it got so far stays, for trying again
                     update(s.id, s.kind) { it.copy(state = "failed", error = failed) }
                     Engine.say("${s.title} didn't download: $failed.")
                 }
@@ -382,7 +443,8 @@ object Offline {
         // still on its way (the PC making it, or the phone fetching it): the PC stops too and clears its copy
         if (!s.done && s.kind != "book" && s.job.isNotEmpty()) tellStopped(s.job)
         files(s).forEach { Fetch.cancel(it.second) }
-        try { File(s.file).let { if (it.isDirectory) it.deleteRecursively() else it.delete() } } catch (e: Exception) { }
+        val f = s.file
+        if (f.isNotEmpty()) disk.execute { try { File(f).let { if (it.isDirectory) it.deleteRecursively() else it.delete() } } catch (e: Exception) { } }
         items.removeAll { it.id == s.id && it.kind == s.kind }
         save()
         Engine.say("Removed the download of ${s.title}.")

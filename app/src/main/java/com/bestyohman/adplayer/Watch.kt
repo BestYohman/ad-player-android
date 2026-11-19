@@ -1253,6 +1253,13 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
                 }
             }
             item {
+                var on by remember { mutableStateOf(Prefs.str("dl_wifi_only", "1") == "1") }
+                row("Download on Wi-Fi only", "Downloads wait while the phone is on mobile data, and carry on on Wi-Fi.", Ic.Download,
+                    trailing = { Switch(checked = on, onCheckedChange = { on = it; Prefs.put("dl_wifi_only", if (it) "1" else "0") }) }) {
+                    on = !on; Prefs.put("dl_wifi_only", if (on) "1" else "0")
+                }
+            }
+            item {
                 var on by remember { mutableStateOf(Prefs.str("dl_next_wifi") == "1") }
                 row("Download the next episode on Wi-Fi", "When a downloaded episode ends, the next one is downloaded (on Wi-Fi only).", Ic.Download,
                     trailing = { Switch(checked = on, onCheckedChange = { on = it; Prefs.put("dl_next_wifi", if (it) "1" else "") }) }) {

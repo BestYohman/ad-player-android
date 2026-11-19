@@ -13,7 +13,14 @@ object Downloads {
     private lateinit var dir: File
 
     fun init(c: Context) {
-        if (!::dir.isInitialized) dir = File(c.applicationContext.cacheDir, "listen").apply { mkdirs() }
+        if (::dir.isInitialized) return
+        dir = File(c.applicationContext.cacheDir, "listen").apply { mkdirs() }
+        // half-fetched ones left from before (more than a day old): never carried on, so they go
+        val d = dir
+        disk.execute {
+            val old = System.currentTimeMillis() - 24 * 3600_000L
+            try { d.listFiles()?.filter { it.isFile && it.name.endsWith(".part") && it.lastModified() < old }?.forEach { it.delete() } } catch (e: Exception) { }
+        }
     }
 
     /** Downloads [url] as [name] (carrying on where it stopped if the connection dropped). Null if it didn't finish. */

@@ -411,9 +411,19 @@ object Engine {
             me.runtime = d.d("runtime_ticks") / 1e7
             me.resumeS = tgPos ?: if (resume) d.d("resume_ticks") / 1e7 else 0.0
             me.job = d.s("id")
+            var askedAgain = false
+            var fails = 0
             while (true) {
                 if (loc !== me) return@launchSafe
-                if (d.s("state") == "failed") {
+                if (d.err().isNotEmpty() && d.s("id").isEmpty() && !askedAgain) {
+                    // the PC forgot it (it restarted): ask once more
+                    askedAgain = true
+                    d = Api.post("/api/play/listen/prepare", mapOf("item" to id, "fmt" to "hls", "any" to "1"))
+                    if (loc !== me) return@launchSafe
+                    if (d.s("id").isNotEmpty()) me.job = d.s("id")
+                    continue
+                }
+                if (d.s("state") == "failed" || d.err().isNotEmpty()) {
                     say(d.err().ifEmpty { "Couldn't get the audio ready." }); loc = null; mode = Mode.NONE; return@launchSafe
                 }
                 // playing together: the whole audio is on this phone before it counts as ready (so the network can't
@@ -424,7 +434,16 @@ object Engine {
                 if (canStart) break
                 me.progress = d.i("progress"); me.seeking = d.b("playable") && me.resumeS > 5; tick++
                 delay(1000)
-                d = Api.get("/api/play/listen/job/${me.job}")
+                d = try {
+                    Api.get("/api/play/listen/job/${me.job}").also { fails = 0 }
+                } catch (e: ApiError) {
+                    if (e.login) throw e
+                    if (++fails >= 15) {
+                        if (loc === me) { say("Lost the connection to the PC. Press Play to try again."); loc = null; mode = Mode.NONE }
+                        return@launchSafe
+                    }
+                    continue                                    // the connection dropped: ask again
+                }
             }
             if (me.tg) {
                 me.progress = 100; me.seeking = false; tick++
@@ -496,7 +515,7 @@ object Engine {
                 tries++
                 try {
                     val j = Api.get("/api/play/listen/job/${me.job}")
-                    if (j.s("state") == "failed") return@launch
+                    if (j.s("state") == "failed" || j.err().isNotEmpty()) return@launch   // (the PC forgot it, say)
                     val url = j.s("full_url")
                     if (url.isNotEmpty()) {
                         val f = Downloads.get(Api.url(url), "${me.job}.m4a")

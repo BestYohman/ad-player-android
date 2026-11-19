@@ -80,7 +80,8 @@ object Api {
     val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
-        .addInterceptor { chain ->
+        // (a network interceptor: it runs again for each redirect, so the sign-in never follows one to another address)
+        .addNetworkInterceptor { chain ->
             val r = chain.request()
             val t = Prefs.token
             val mine = known(r.url.toString())
@@ -95,8 +96,9 @@ object Api {
 
     fun homeUrls(): List<String> = try { JSONArray(Prefs.str("home_urls", "[]")).strs() } catch (e: Exception) { emptyList() }
 
+    /** Only these get the sign-in: the address typed in, and a home address once it has proved it's this PC. */
     private fun known(url: String): Boolean =
-        (listOf(normalize(Prefs.server)) + homeUrls()).any { it.isNotEmpty() && url.startsWith(it) }
+        listOf(normalize(Prefs.server), active).any { it.isNotEmpty() && url.startsWith(it) }
 
     /** Keeps what the PC says about itself: which PC it is and its home-network addresses. */
     fun rememberServer(me: JSONObject) {
@@ -104,12 +106,15 @@ object Api {
         me.optJSONArray("home_urls")?.let { Prefs.put("home_urls", it.toString()) }
     }
 
+    /** For trying the home addresses: never sends the sign-in (on someone else's Wi-Fi that address can be anyone). */
     private val quick: OkHttpClient by lazy {
-        http.newBuilder().connectTimeout(1500, TimeUnit.MILLISECONDS).callTimeout(2500, TimeUnit.MILLISECONDS).build()
+        OkHttpClient.Builder().connectTimeout(1500, TimeUnit.MILLISECONDS).callTimeout(2500, TimeUnit.MILLISECONDS)
+            .followRedirects(false).build()
     }
 
     /** Which address to use: on Wi-Fi, this PC's home address if it answers (and it's the same PC); otherwise the
-     *  address typed in (the web address away from home). */
+     *  address typed in (the web address away from home). The home address is asked without the sign-in, and only
+     *  used (and sent the sign-in) once it answers with the id this PC gave over the address typed in. */
     suspend fun chooseAddress(onWifi: Boolean): String = withContext(Dispatchers.IO) {
         val away = normalize(Prefs.server)
         val id = Prefs.str("server_id")
@@ -128,9 +133,24 @@ object Api {
     fun normalize(addr: String): String {
         var a = addr.trim().trimEnd('/')
         if (a.isEmpty()) return ""
-        if (!a.startsWith("http://", true) && !a.startsWith("https://", true)) a = "http://$a"
+        if (!a.startsWith("http://", true) && !a.startsWith("https://", true)) a = (if (lan(a)) "http://" else "https://") + a
         if (a.endsWith("/play")) a = a.removeSuffix("/play")
         return a
+    }
+
+    /** An address on the home network (or this phone): 10.x, 172.16-31.x, 192.168.x, 127.x, a .local name, or a
+     *  name without a dot. Only these get plain http when typed without http:// or https://. */
+    private fun lan(a: String): Boolean {
+        val host = a.substringBefore('/').substringBefore('?').let {
+            if (it.startsWith("[")) it.substringAfter('[').substringBefore(']') else it.substringBeforeLast(':', it)
+        }.lowercase()
+        if (host.isEmpty() || host == "localhost" || host.endsWith(".local")) return true
+        val n = host.split('.').map { it.toIntOrNull() }
+        if (n.size == 4 && n.all { it != null && it in 0..255 }) {
+            val (x, y) = n[0]!! to n[1]!!
+            return x == 10 || x == 127 || (x == 172 && y in 16..31) || (x == 192 && y == 168)
+        }
+        return !host.contains('.') && !host.contains(':')
     }
 
     fun url(path: String): String = if (path.contains("://")) path else base() + path
@@ -160,7 +180,11 @@ object Api {
             throw ApiError("That address isn't right.")
         }
         resp.use {
-            val body = it.body?.string() ?: ""
+            val body = try {
+                it.body?.string() ?: ""
+            } catch (e: IOException) {                              // the connection dropped while the answer came
+                throw ApiError("Couldn't reach the PC. Check the address, and that the phone is online.")
+            }
             val j = try {
                 JSONObject(body)
             } catch (e: Exception) {
