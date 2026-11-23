@@ -2,6 +2,15 @@
 
 Each version below is a release on GitHub (Releases, "v1.8.0" and so on). The newest is also "AD Player (latest)".
 
+## 1.12.0 - 2026-11-23
+- **Looks like the web page:** the same home with the big picture at the top, rows of posters, and Home, Shows, Movies, Books and You along the bottom. Show, movie and book pages, the library pages with Sort and filter, and You (settings) are laid out like the web page too.
+- **How you see the screen**, as on the web page: the first sign-in asks once, and it can be changed any time under You. It's kept on the PC, so it's the same everywhere you sign in (needs the PC's app 2.31.0).
+  - **No vision:** the audio-only layout made for TalkBack.
+  - **Low vision:** big text and buttons, thick outlines, and a dark, light or yellow-on-black screen. Screen is at the top beside Search. Under You: text size (Normal, Large, Larger, Largest), the screen, and switches to show the video, add an extra-thick outline on what's selected, turn off moving animations, and show posters and covers. A show's or movie's page has its words on a plain background and one button a line.
+  - **Full vision:** the poster layout.
+- **While playing:** a bar at the bottom with Stop, back 10 seconds, Play / Pause, forward 30 seconds, Next, and **Audio and subtitles** (pick the sound track and subtitles of a video, on the phone or the TV).
+- The video player's buttons are laid out like the web page's.
+
 ## 1.11.0 - 2026-11-19
 - **Safer sign-in at home:** the app only uses the PC's home address once it has proved it's your PC, with a secret key the phone got when you signed in (needs the PC's app 2.30.4). Your sign-in is never sent to an address that hasn't proved it, and never follows a redirect. An address typed without http:// or https:// uses https unless it's on the home network. The sign-in isn't copied to a backup or a new phone.
 - **Sign-in:** a **Show password** box, and the phone's password manager can fill in your user name and password.
