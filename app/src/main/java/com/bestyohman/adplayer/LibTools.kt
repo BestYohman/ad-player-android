@@ -1,6 +1,7 @@
 package com.bestyohman.adplayer
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,7 +54,7 @@ import org.json.JSONObject
 /** How a library is sorted and filtered (kept for each library on the phone). */
 data class LibView(
     val sort: String = "title", val desc: Boolean = false, val state: String = "", val fav: Boolean = false,
-    val ad: Boolean = false, val genre: String = "", val rating: String = "", val year: String = ""
+    val ad: Boolean = true, val genre: String = "", val rating: String = "", val year: String = ""
 ) {
     fun query(): String = "&sort=$sort&desc=${if (desc) 1 else 0}" +
         (if (state.isNotEmpty()) "&state=$state" else "") + (if (fav) "&fav=1" else "") + (if (ad) "&ad=1" else "") +
@@ -68,7 +69,7 @@ data class LibView(
     companion object {
         fun load(lib: String): LibView = try {
             val j = JSONObject(Prefs.str("libview_$lib", "{}"))
-            LibView(j.optString("sort", "title"), j.optBoolean("desc"), j.optString("state"), j.optBoolean("fav"), j.optBoolean("ad"),
+            LibView(j.optString("sort", "title"), j.optBoolean("desc"), j.optString("state"), j.optBoolean("fav"), j.optBoolean("ad", true),
                 j.optString("genre"), j.optString("rating"), j.optString("year"))
         } catch (e: Exception) { LibView() }
 
@@ -95,69 +96,73 @@ object LibSorts {
 }
 
 private val SheetBg = Color(0xFF262626)
-private val FieldBg = Color(0xFF3A3A3E)
+private val FieldBg = EBtn2
 
-/** The Sort and Filter buttons above a library, and their sheets. */
+/** The chips under a library's name, as on the web page: With AD, Favorites, In progress, Unwatched. */
+@Composable
+fun FilterChips(view: LibView, onChange: (LibView) -> Unit) {
+    androidx.compose.foundation.lazy.LazyRow(
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 10.dp)
+    ) {
+        item { FChip("With AD", view.ad) { onChange(view.copy(ad = !view.ad)) } }
+        item { FChip("Favorites", view.fav) { onChange(view.copy(fav = !view.fav)) } }
+        item { FChip("In progress", view.state == "resumable") { onChange(view.copy(state = if (view.state == "resumable") "" else "resumable")) } }
+        item { FChip("Unwatched", view.state == "unplayed") { onChange(view.copy(state = if (view.state == "unplayed") "" else "unplayed")) } }
+    }
+}
+
+@Composable
+private fun FChip(text: String, on: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.height(40.dp).clip(RoundedCornerShape(20.dp)).background(if (on) Color(0x292DD4BF) else EBtn2)
+            .border(1.dp, if (on) EGreen else ELine, RoundedCornerShape(20.dp)).clickable(onClick = onClick)
+            .semantics { role = Role.Button; selected = on }.padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (on) Icon(Ic.Check, null, tint = EGreen, modifier = Modifier.size(16.dp).padding(end = 2.dp))
+        Text(text, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = if (on) 4.dp else 0.dp))
+    }
+}
+
+/** The round Sort and filter button beside a library's name (as on the web page), and its sheet. */
 @kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LibraryControls(lib: String, view: LibView, onChange: (LibView) -> Unit) {
-    var sortOpen by remember { mutableStateOf(false) }
-    var filterOpen by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-        val way = LibSorts.way(view)
-        IconButton(onClick = { sortOpen = true }, modifier = Modifier.semantics {
-            contentDescription = "Sort by ${LibSorts.name(view.sort)}" + if (way.isNotEmpty()) ", $way" else ""
-        }) { Icon(Ic.Sort, null, tint = Color.White) }
-        Spacer(Modifier.width(24.dp))
-        Box {
-            IconButton(onClick = { filterOpen = true }, modifier = Modifier.semantics {
-                contentDescription = if (view.filtersOn > 0) "Filters, ${view.filtersOn} on" else "Filters"
-            }) { Icon(Ic.Filter, null, tint = if (view.filtersOn > 0) EGreen else Color.White) }
-            if (view.filtersOn > 0) Box(Modifier.align(Alignment.TopEnd).padding(6.dp).size(8.dp).clip(RoundedCornerShape(4.dp)).background(EGreen))
-        }
+fun SortFilterButton(lib: String, view: LibView, onChange: (LibView) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val way = LibSorts.way(view)
+    Box {
+        Box(
+            Modifier.size(44.dp).clip(RoundedCornerShape(22.dp)).background(if (open) Color.White else EBtn2).border(1.dp, ELine, RoundedCornerShape(22.dp))
+                .clickable { open = true }.semantics {
+                    role = Role.Button
+                    contentDescription = "Sort and filter: ${LibSorts.name(view.sort)}" + (if (way.isNotEmpty()) ", $way" else "") +
+                        (if (view.filtersOn > 0) ", ${view.filtersOn} filters on" else "")
+                },
+            contentAlignment = Alignment.Center
+        ) { Icon(Ic.Filter, null, tint = if (open) EInk else Color.White, modifier = Modifier.size(22.dp)) }
+        if (view.filtersOn > 1 || (view.filtersOn == 1 && !view.ad) || view.sort != "title")
+            Box(Modifier.align(Alignment.TopEnd).padding(5.dp).size(10.dp).clip(RoundedCornerShape(5.dp)).background(EGreen))
     }
-
-    if (sortOpen) {
-        val st = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(onDismissRequest = { sortOpen = false }, sheetState = st, containerColor = SheetBg) {
-            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 16.dp)) {
-                Text("Sort By", color = ESub, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp).semantics { heading() }, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                LibSorts.all.forEach { (k, name, newestFirst) ->
-                    val on = view.sort == k
-                    Row(
-                        Modifier.fillMaxWidth().clickable {
-                            // the one already chosen: the other way round; a new one: its usual way
-                            val nv = if (on && k != "random") view.copy(desc = !view.desc) else view.copy(sort = k, desc = newestFirst)
-                            onChange(nv); if (!on || k == "random") sortOpen = false
-                        }.semantics {
-                            role = Role.Button; selected = on
-                            stateDescription = if (on) "chosen, " + LibSorts.way(view) + (if (k != "random") ". Tap to sort the other way round" else "") else ""
-                        }.padding(horizontal = 24.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(Modifier.width(40.dp)) { if (on) Icon(Ic.Check, null, tint = Color.White) }
-                        Text(name, color = Color.White, fontSize = 19.sp, modifier = Modifier.weight(1f))
-                        if (on && k != "random") Icon(if (view.desc) Ic.ArrowDown else Ic.ArrowUp, null, tint = ESub)
-                    }
-                }
-            }
-        }
-    }
-
-    if (filterOpen) {
+    if (open) {
         val (opts, optsErr) = rememberData("/api/play/filters?parent=${enc(lib)}")
         val st = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(onDismissRequest = { filterOpen = false }, sheetState = st, containerColor = SheetBg) {
+        ModalBottomSheet(onDismissRequest = { open = false }, sheetState = st, containerColor = ECard) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Filters", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).semantics { heading() })
-                    if (view.filtersOn > 0) TextButton(onClick = { onChange(LibView(sort = view.sort, desc = view.desc)) }) { Text("Clear all", color = EGreen) }
+                    Text("Sort and filter", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f).semantics { heading() })
+                    if (view.filtersOn > 0 || view.sort != "title") TextButton(onClick = { onChange(LibView(ad = false)) }) { Text("Clear all", color = EGreen) }
                 }
-                Spacer(Modifier.height(8.dp))
-                Choice("Playstate", listOf("" to "Any", "unplayed" to "Unplayed", "played" to "Played", "resumable" to "In progress"), view.state) { onChange(view.copy(state = it)) }
-                Toggle("Favorite", view.fav) { onChange(view.copy(fav = it)) }
-                Toggle("Has audio description", view.ad) { onChange(view.copy(ad = it)) }
+                Choice("Sort by", LibSorts.all.map { it.first to it.second }, view.sort) { k ->
+                    onChange(view.copy(sort = k, desc = LibSorts.all.firstOrNull { it.first == k }?.third ?: false))
+                }
+                if (view.sort != "random") {
+                    val ways = listOf(view.copy(desc = false), view.copy(desc = true)).map { LibSorts.way(it) }
+                    Choice("Order", listOf("0" to ways[0], "1" to ways[1]), if (view.desc) "1" else "0") { onChange(view.copy(desc = it == "1")) }
+                }
+                Choice("Watched", listOf("" to "Any", "unplayed" to "Unwatched", "played" to "Watched", "resumable" to "In progress"), view.state) { onChange(view.copy(state = it)) }
+                Toggle("Favorites only", view.fav) { onChange(view.copy(fav = it)) }
+                Toggle("Only with audio description", view.ad) { onChange(view.copy(ad = it)) }
                 if (opts == null) Text(optsErr.ifEmpty { "Loading…" }, color = ESub, fontSize = 17.sp, modifier = Modifier.padding(vertical = 8.dp))
                 val genres = opts?.optJSONArray("genres").strs()
                 val ratings = opts?.optJSONArray("ratings").strs()
@@ -170,7 +175,6 @@ fun LibraryControls(lib: String, view: LibView, onChange: (LibView) -> Unit) {
     }
 }
 
-
 /** A labelled box that opens a list to pick from, like Emby's. */
 @Composable
 private fun Choice(label: String, options: List<Pair<String, String>>, value: String, onPick: (String) -> Unit) {
@@ -180,7 +184,7 @@ private fun Choice(label: String, options: List<Pair<String, String>>, value: St
         Text(label, color = Color.White, fontSize = 17.sp, modifier = Modifier.padding(bottom = 6.dp))
         Box {
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(FieldBg).clickable { open = true }
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(FieldBg).border(1.dp, ELine, RoundedCornerShape(12.dp)).clickable { open = true }
                     .semantics(mergeDescendants = true) { role = Role.DropdownList; contentDescription = "$label: $shown" }
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically

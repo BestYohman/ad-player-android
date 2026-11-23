@@ -766,7 +766,9 @@ private fun WebHome(p: Page) {
                 }
             }
         }
-        TopBar(null, {}, solid = false, heading = false)
+        val ls = W.list(p)
+        val scrolled by remember { derivedStateOf { ls.firstVisibleItemIndex > 0 || ls.firstVisibleItemScrollOffset > 120 } }
+        TopBar(null, {}, solid = scrolled, heading = false)
     }
 }
 
@@ -922,9 +924,14 @@ private fun GridPage(p: Page, openDrawer: () -> Unit) {
     val (d, err) = rememberData(path)
     val list = d?.itemList()
     Column(Modifier.fillMaxSize()) {
-        TopBar(p.title, openDrawer)
-        // a library: sort and filter it (kept for next time)
-        if (p.kind == "library") LibraryControls(p.id, view) { v -> view = v; LibView.save(p.id, v) }
+        TopBar(null, openDrawer, heading = false)
+        // the name and how many (as on the web page); a library: the round Sort and filter button, and the chips (kept for next time)
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(p.title + (if (list != null) " (${list.size})" else ""), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold,
+                lineHeight = 33.sp, modifier = Modifier.weight(1f).semantics { heading() })
+            if (p.kind == "library") SortFilterButton(p.id, view) { v -> view = v; LibView.save(p.id, v) }
+        }
+        if (p.kind == "library") FilterChips(view) { v -> view = v; LibView.save(p.id, v) }
         Refreshable(Modifier.fillMaxSize(), belowTopBar = false) { when {
             list == null -> Loading(err)
             list.isEmpty() && p.kind == "library" && view.filtersOn > 0 ->
@@ -943,10 +950,9 @@ private fun GridPage(p: Page, openDrawer: () -> Unit) {
                 val wide = list.all { it.type == "Episode" || it.type == "Video" && it.poster.isEmpty() }
                 LazyVerticalGrid(
                     GridCells.Adaptive(if (wide) 170.dp else 108.dp), state = W.grid(p),
-                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 170.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 190.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
-                    item(span = { GridItemSpan(maxLineSpan) }) { Text("${list.size} items", color = ESub, fontSize = 13.sp) }
                     items(list) { PosterCard(it, Dp.Unspecified, wide) }
                 }
             }
@@ -1575,69 +1581,109 @@ private fun BookPage(p: Page, openDrawer: () -> Unit) {
 }
 
 // ------------------------------------------------------------------------------------------- settings
+/** You (settings), as on the web page: who's signed in, then a card for each part; each opens its own page. */
 @Composable
 private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
     var castOpen by remember { mutableStateOf(false) }
     var qOpen by remember { mutableStateOf(false) }
     var dOpen by remember { mutableStateOf(false) }
-    @Composable fun row(title: String, sub: String, icon: ImageVector, trailing: (@Composable () -> Unit)? = null, onClick: () -> Unit) {
-        Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = Color.White)
+    val name = Engine.me?.s("name") ?: ""
+    val dev = Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "Choose"
+    @Composable fun card(title: String, sub: String, icon: ImageVector, onClick: () -> Unit) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp).clip(RoundedCornerShape(16.dp)).background(ECard)
+                .border(1.dp, ELine, RoundedCornerShape(16.dp)).clickable(onClick = onClick)
+                .semantics(mergeDescendants = true) { role = Role.Button }.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.size(42.dp).clip(CircleShape).background(EGreen), contentAlignment = Alignment.Center) {
+                Icon(icon, null, tint = EInk, modifier = Modifier.size(22.dp))
+            }
             Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                Text(title, color = Color.White, fontSize = 17.sp)
+                Text(title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                if (sub.isNotEmpty()) Text(sub, color = ESub, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Icon(Ic.Chevron, null, tint = ESub)
+        }
+    }
+    @Composable fun row(title: String, sub: String, trailing: (@Composable () -> Unit)? = null, onClick: () -> Unit) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp).clip(RoundedCornerShape(16.dp)).background(ECard)
+                .border(1.dp, ELine, RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                Text(title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                 if (sub.isNotEmpty()) Text(sub, color = ESub, fontSize = 14.sp)
             }
             trailing?.invoke()
         }
     }
+    @Composable fun switchRow(title: String, sub: String, key: String, def: String, onVal: String) {
+        var on by remember { mutableStateOf(Prefs.str(key, def) == onVal) }
+        val off = if (onVal == "1" && def == "1") "0" else ""
+        row(title, sub, trailing = { Switch(checked = on, onCheckedChange = { on = it; Prefs.put(key, if (it) onVal else off) }) }) {
+            on = !on; Prefs.put(key, if (on) onVal else off)
+        }
+    }
+    val section = p.id
+    val head = when (section) {
+        "account" -> "Account"; "playback" -> "Playback"; "downloads" -> "Downloads"; "ad" -> "Audio description"; "app" -> "This app"; else -> "Settings"
+    }
     Column(Modifier.fillMaxSize()) {
-        TopBar("Settings", openDrawer)
-        LazyColumn(contentPadding = PaddingValues(bottom = 170.dp)) {
-            item { row("Downloads", "What's saved on this phone", Ic.Download) { W.go(Page("downloads")) } }
-            item { row("Favorites", "Shows and movies you marked with the heart", Ic.HeartFull) { W.go(Page("favorites")) } }
-            item { row("Without audio description", "Shows and movies that have none yet", Ic.Ear) { W.go(Page("list", "noad", "Without audio description")) } }
-            item { row("Requests for audio description", "What's been asked for", Ic.Ear) { W.go(Page("list", "requests", "Requests for audio description")) } }
-            item { HorizontalDivider(color = ELine) }
-            item { row("Play on", Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "Choose", Ic.Cast) { castOpen = true } }
-            if (Engine.devHelp.isNotEmpty()) item { Text(Engine.devHelp, color = ESub, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 56.dp)) }
-            item {
-                row("Headphone delay (playing together)", Engine.delays.firstOrNull { it.first == Engine.headphoneDelay }?.second ?: Engine.headphoneDelay, Ic.Headphones) { dOpen = true }
-            }
-            item { row("Video quality", Engine.qualityLabel(), Ic.Settings) { qOpen = true } }
-            item {
-                var on by remember { mutableStateOf(Prefs.str("dl_remove_done") == "1") }
-                row("Remove downloads once finished", "A downloaded episode, movie or book is deleted from the phone when it has played to the end.", Ic.Download,
-                    trailing = { Switch(checked = on, onCheckedChange = { on = it; Prefs.put("dl_remove_done", if (it) "1" else "") }) }) {
-                    on = !on; Prefs.put("dl_remove_done", if (on) "1" else "")
+        TopBar(head, openDrawer)
+        LazyColumn(contentPadding = PaddingValues(top = 6.dp, bottom = 190.dp)) {
+            when (section) {
+                "account" -> {
+                    item { row("Signed in as $name", if (Api.atHome) "At home, straight to the PC" else "Through ${Api.base().removePrefix("http://").removePrefix("https://")}") {} }
+                    item { row("Change the PC address", "") { Engine.screen = "server" } }
+                    item { Box(Modifier.padding(16.dp)) { WebBtn("Sign out") { Engine.signOut() } } }
+                }
+                "playback" -> {
+                    item { row("Headphone delay (playing together)", Engine.delays.firstOrNull { it.first == Engine.headphoneDelay }?.second ?: Engine.headphoneDelay) { dOpen = true } }
+                    item { row("Video quality", Engine.qualityLabel()) { qOpen = true } }
+                }
+                "downloads" -> {
+                    item { row("What's on this phone", "Downloaded episodes, movies and books") { W.go(Page("downloads")) } }
+                    item { switchRow("Remove downloads once finished", "A downloaded episode, movie or book is deleted from the phone when it has played to the end.", "dl_remove_done", "", "1") }
+                    item { switchRow("Download on Wi-Fi only", "Downloads wait while the phone is on mobile data, and carry on on Wi-Fi.", "dl_wifi_only", "1", "1") }
+                    item { switchRow("Download the next episode on Wi-Fi", "When a downloaded episode ends, the next one is downloaded (on Wi-Fi only).", "dl_next_wifi", "", "1") }
+                }
+                "ad" -> {
+                    item { row("Without audio description", "Shows and movies that have none yet") { W.go(Page("list", "noad", "Without audio description")) } }
+                    item { row("Requests for audio description", "What's been asked for") { W.go(Page("list", "requests", "Requests for audio description")) } }
+                }
+                "app" -> {
+                    item {
+                        row("Version ${Update.mine}", Update.message.ifEmpty { if (Update.available.isNotEmpty()) "Version ${Update.available} is ready" else "Check for a new version" }) {
+                            Engine.scope.launch { Update.check(now = true) }
+                        }
+                    }
+                    item { UpdateCard() }
+                }
+                else -> {
+                    item {
+                        Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(56.dp).clip(CircleShape).background(EGreen), contentAlignment = Alignment.Center) {
+                                Text(name.take(1).uppercase(), color = EInk, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Column(Modifier.padding(start = 14.dp)) {
+                                Text(name, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                                Text("Signed in", color = ESub, fontSize = 15.sp)
+                            }
+                        }
+                    }
+                    item { card("Account", "Signed in as $name", Ic.Person) { W.go(Page("settings", "account")) } }
+                    item { card("Playback", "Video quality ${Engine.qualityLabel()}", Ic.Play) { W.go(Page("settings", "playback")) } }
+                    item { card("Play on", dev, Ic.Cast) { castOpen = true } }
+                    if (Engine.devHelp.isNotEmpty()) item { Text(Engine.devHelp, color = ESub, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)) }
+                    item { card("Downloads", "What's on this phone, and how it downloads", Ic.Download) { W.go(Page("settings", "downloads")) } }
+                    item { card("Favorites", "Shows and movies you marked", Ic.HeartFull) { W.go(Page("favorites")) } }
+                    item { card("Audio description", "Requests, and what has none yet", Ic.Ear) { W.go(Page("settings", "ad")) } }
+                    item { card("This app", "Version ${Update.mine}" + if (Update.available.isNotEmpty()) " · ${Update.available} is ready" else "", Ic.Info) { W.go(Page("settings", "app")) } }
+                    item { Box(Modifier.padding(16.dp)) { WebBtn("Sign out") { Engine.signOut() } } }
                 }
             }
-            item {
-                var on by remember { mutableStateOf(Prefs.str("dl_wifi_only", "1") == "1") }
-                row("Download on Wi-Fi only", "Downloads wait while the phone is on mobile data, and carry on on Wi-Fi.", Ic.Download,
-                    trailing = { Switch(checked = on, onCheckedChange = { on = it; Prefs.put("dl_wifi_only", if (it) "1" else "0") }) }) {
-                    on = !on; Prefs.put("dl_wifi_only", if (on) "1" else "0")
-                }
-            }
-            item {
-                var on by remember { mutableStateOf(Prefs.str("dl_next_wifi") == "1") }
-                row("Download the next episode on Wi-Fi", "When a downloaded episode ends, the next one is downloaded (on Wi-Fi only).", Ic.Download,
-                    trailing = { Switch(checked = on, onCheckedChange = { on = it; Prefs.put("dl_next_wifi", if (it) "1" else "") }) }) {
-                    on = !on; Prefs.put("dl_next_wifi", if (on) "1" else "")
-                }
-            }
-            item { HorizontalDivider(color = Color(0xFF2A2A2A)) }
-            item {
-                row("App version ${Update.mine}", Update.message.ifEmpty { if (Update.available.isNotEmpty()) "Version ${Update.available} is ready - see Home" else "Check for a new version" },
-                    Ic.Download) { Engine.scope.launch { Update.check(now = true) } }
-            }
-            item { UpdateCard() }
-            item { HorizontalDivider(color = Color(0xFF2A2A2A)) }
-            item {
-                row("Signed in as ${Engine.me?.s("name") ?: ""}",
-                    if (Api.atHome) "At home, straight to the PC" else "Through ${Api.base().removePrefix("http://").removePrefix("https://")}", Ic.Person) {}
-            }
-            item { row("Change the PC address", "", Ic.Tv) { Engine.screen = "server" } }
-            item { row("Sign out", "", Ic.Logout) { Engine.signOut() } }
         }
     }
     if (castOpen) PlayOnDialog { castOpen = false }
