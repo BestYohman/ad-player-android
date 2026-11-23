@@ -118,6 +118,7 @@ def route(path, q):
         if k == "favorites": return {"items": SERIES[:1] + MOVIES[:2]}
         if k == "search": return {"items": SERIES[:1] + MOVIES[:2] + EPS[:1]}
         if k == "continue": return {"items": [NINE, ENC, EPS[1]]}                      # the web page's home rows
+        if k.startswith("continue_"): return {"items": [NINE, EPS[1]] if k == "continue_shows" else [ENC]}   # the audio-only layout
         if k == "recent": return {"items": [EPS[0], MOVIES[0], EPS[2]]}
         if k == "shows": return {"items": SERIES * 3}
         if k == "movies": return {"items": MOVIES * 3}
