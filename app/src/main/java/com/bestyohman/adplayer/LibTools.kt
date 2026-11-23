@@ -95,8 +95,8 @@ object LibSorts {
     }
 }
 
-private val SheetBg = Color(0xFF262626)
-private val FieldBg = EBtn2
+private val SheetBg: Color get() = if (Look.low) EBg else Color(0xFF262626)
+private val FieldBg: Color get() = EBtn2
 
 /** The chips under a library's name, as on the web page: With AD, Favorites, In progress, Unwatched. */
 @Composable
@@ -115,7 +115,7 @@ fun FilterChips(view: LibView, onChange: (LibView) -> Unit) {
 @Composable
 private fun FChip(text: String, on: Boolean, onClick: () -> Unit) {
     Row(
-        Modifier.height(40.dp).clip(RoundedCornerShape(20.dp)).background(if (on) (if (Look.low) EBtn2 else Color(0x292DD4BF)) else EBtn2)
+        Modifier.height(if (Look.low) 56.dp else 40.dp).clip(RoundedCornerShape(20.dp)).background(if (on) (if (Look.low) EBtn2 else Color(0x292DD4BF)) else EBtn2)
             .border(Look.line, if (on) EGreen else ELine, RoundedCornerShape(20.dp)).clickable(onClick = onClick)
             .semantics { role = Role.Button; selected = on }.padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -133,7 +133,7 @@ fun SortFilterButton(lib: String, view: LibView, onChange: (LibView) -> Unit) {
     val way = LibSorts.way(view)
     Box {
         Box(
-            Modifier.size(44.dp).clip(RoundedCornerShape(22.dp)).background(if (open) EMain else EBtn2).border(Look.line, ELine, RoundedCornerShape(22.dp))
+            Modifier.size(if (Look.low) 56.dp else 44.dp).clip(RoundedCornerShape(if (Look.low) 28.dp else 22.dp)).background(if (open) EMain else EBtn2).border(Look.line, ELine, RoundedCornerShape(22.dp))
                 .clickable { open = true }.semantics {
                     role = Role.Button
                     contentDescription = "Sort and filter: ${LibSorts.name(view.sort)}" + (if (way.isNotEmpty()) ", $way" else "") +

@@ -72,6 +72,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -138,7 +139,10 @@ import java.io.File
 // (body.sight-low.ls-dark / ls-light / ls-yellow). They follow how she sees the screen, so everything changes at once.
 object Look {
     val low: Boolean get() = Engine.sight == "low"
-    private val scr: String get() = Engine.sOpt("screen")
+    /** The video's full-screen player is always dark (the picture), so the light screen uses the dark colours there. */
+    private val onVideo: Boolean get() = W.player && Engine.mode == Engine.Mode.VIDEO && Engine.vd != null
+    private val scr: String get() = Engine.sOpt("screen").let { if (it == "light" && onVideo) "dark" else it }
+    val light: Boolean get() = low && scr == "light"
     fun pick(full: Long, dark: Long, light: Long, yellow: Long): Color =
         Color(if (!low) full else when (scr) { "light" -> light; "yellow" -> yellow; else -> dark })
     /** Lines round buttons and cards: thin, or 3 wide for low vision. */
@@ -160,6 +164,7 @@ val EBtn2: Color get() = Look.pick(0xFF1D212A, 0xFF141414, 0xFFF2F2F2, 0xFF1A1A0
 val EMain: Color get() = Look.pick(0xFFFFFFFF, 0xFFFFD60A, 0xFF0033A0, 0xFFFFFFFF)      // the main button (white; low vision: its button colour)
 val EInk: Color get() = Look.pick(0xFF0B0D11, 0xFF000000, 0xFFFFFFFF, 0xFF000000)       // words on the main button or the accent
 val ERed = Color(0xFFE53935)
+val EWarn: Color get() = Look.pick(0xFFFFB74D, 0xFFFFB74D, 0xFF8A3B00, 0xFFFFB74D)    // "No audio description"
 
 /** A page in the watch app. */
 data class Page(val kind: String, val id: String = "", val title: String = "", val extra: String = "")
@@ -240,14 +245,19 @@ fun WatchApp(act: MainActivity) {
     val view = androidx.compose.ui.platform.LocalView.current
     SideEffect {
         WindowCompat.getInsetsController(act.window, view).apply {
-            val light = Look.low && Engine.sOpt("screen") == "light"
+            val light = Look.light
             isAppearanceLightStatusBars = light; isAppearanceLightNavigationBars = light
         }
     }
     MaterialTheme(
-        colorScheme = darkColorScheme(
-            primary = EGreen, onPrimary = EInk, secondary = EGreen, onSecondary = EInk, background = EBg, surface = EBg, surfaceVariant = ECard,
-            surfaceContainer = ECard, surfaceContainerHigh = EBtn2, surfaceContainerHighest = EBtn2, onSurfaceVariant = ESub, outline = ELine
+        colorScheme = if (Look.light) lightColorScheme(
+            primary = EGreen, onPrimary = EInk, secondary = EGreen, onSecondary = EInk, background = EBg, onBackground = EFg, surface = EBg, onSurface = EFg,
+            surfaceVariant = ECard, surfaceContainer = ECard, surfaceContainerHigh = EBtn2, surfaceContainerHighest = EBtn2, surfaceContainerLow = EBtn2,
+            onSurfaceVariant = ESub, outline = ELine
+        ) else darkColorScheme(
+            primary = EGreen, onPrimary = EInk, secondary = EGreen, onSecondary = EInk, background = EBg, onBackground = EFg, surface = EBg, onSurface = EFg,
+            surfaceVariant = ECard, surfaceContainer = ECard, surfaceContainerHigh = EBtn2, surfaceContainerHighest = EBtn2, surfaceContainerLow = EBtn2,
+            onSurfaceVariant = ESub, outline = ELine
         )
     ) {
         val vd = Engine.vd
@@ -268,7 +278,14 @@ fun WatchApp(act: MainActivity) {
         androidx.compose.runtime.CompositionLocalProvider(
             androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(dn.density * Look.zoom, dn.fontScale * Look.textScale / Look.zoom)
         ) {
-        if (showPlayer) { if (video) PlayerScreen(act) else AudioScreen(act); return@CompositionLocalProvider }
+        if (showPlayer && video) {
+            val z = minOf(Look.zoom, 1.08f); val t = minOf(Look.textScale, 1.4f)
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(dn.density * z, dn.fontScale * t / z)
+            ) { PlayerScreen(act); if (W.trk.isNotEmpty()) TrackSheet(W.trk) { W.trk = "" } }
+            return@CompositionLocalProvider
+        }
+        if (showPlayer) { AudioScreen(act); return@CompositionLocalProvider }
         Surface(Modifier.fillMaxSize(), color = EBg) {
             Box(Modifier.fillMaxSize()) {
                 val page = W.stack.last()
@@ -289,8 +306,9 @@ fun WatchApp(act: MainActivity) {
 private fun Toast(t: String) {
     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
         Text(
-            t, color = EInk, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
-            modifier = Modifier.align(Alignment.Center).background(Color(0xF2F2F4F7), RoundedCornerShape(14.dp)).padding(horizontal = 18.dp, vertical = 12.dp)
+            t, color = if (Look.low) EFg else EInk, style = MaterialTheme.typography.bodyMedium, fontWeight = if (Look.low) FontWeight.Bold else FontWeight.Medium,
+            modifier = Modifier.align(Alignment.Center).background(if (Look.low) EBtn2 else Color(0xF2F2F4F7), RoundedCornerShape(14.dp))
+                .then(if (Look.low) Modifier.border(Look.line, ELine, RoundedCornerShape(14.dp)) else Modifier).padding(horizontal = 18.dp, vertical = 12.dp)
         )
     }
 }
@@ -353,10 +371,10 @@ private fun LowTools() {
     val si = sizes.indexOfFirst { it.first == Engine.sOpt("size") }.coerceAtLeast(0)
     val sc = screens.indexOfFirst { it.first == Engine.sOpt("screen") }.coerceAtLeast(0)
     Row(Modifier.fillMaxWidth().background(EBg).padding(start = 10.dp, end = 10.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        WebBtn("A\u2212", label = "Smaller text") {
+        WebBtn("A\u2212", label = "Smaller text, now ${sizes[si].second}") {
             if (si == 0) Engine.say("Text size is already the smallest (normal).") else Engine.sightSave(mapOf("size" to sizes[si - 1].first), "Text size: ${sizes[si - 1].second.lowercase()}.")
         }
-        WebBtn("A+", label = "Larger text") {
+        WebBtn("A+", label = "Larger text, now ${sizes[si].second}") {
             if (si >= sizes.size - 1) Engine.say("Text size is already the largest.") else Engine.sightSave(mapOf("size" to sizes[si + 1].first), "Text size: ${sizes[si + 1].second.lowercase()}.")
         }
         val n = screens[(sc + 1) % screens.size]
@@ -432,7 +450,7 @@ private fun BottomNav() {
                 ) {
                     val c = if (Look.low) (if (on) EInk else EFg) else if (on) EGreen else ESub
                     Icon(ic, null, tint = c, modifier = Modifier.size(24.dp))
-                    Text(l, color = c, fontSize = 12.sp, fontWeight = if (on || Look.low) FontWeight.Bold else FontWeight.Medium, maxLines = 1,
+                    Text(l, color = c, fontSize = (12f * minOf(1f, 1.45f / Look.textScale)).sp, fontWeight = if (on || Look.low) FontWeight.Bold else FontWeight.Medium, maxLines = 1,
                         modifier = Modifier.padding(top = 2.dp))
                 }
             }
@@ -474,7 +492,7 @@ private fun MiniPlayer() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).background(EBtn2)) {
-                if (pic.isNotEmpty()) AsyncImage(picUrl(pic, 160), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                if (pic.isNotEmpty() && Look.posters) AsyncImage(picUrl(pic, 160), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(title, color = EFg, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -495,7 +513,7 @@ private fun MiniPlayer() {
             val tid = trkItem()
             if (tid.isNotEmpty()) MiniBtn(Ic.Subtitles, "Audio and subtitles") { W.trk = tid }
         }
-        if (len > 0) Box(Modifier.fillMaxWidth().height(3.dp).background(Color(0x40FFFFFF))) {
+        if (len > 0) Box(Modifier.fillMaxWidth().height(if (Look.low) 5.dp else 3.dp).background(if (Look.low) ESub.copy(alpha = 0.35f) else Color(0x40FFFFFF))) {
             Box(Modifier.fillMaxHeight().fillMaxWidth((pos / len).toFloat().coerceIn(0f, 1f)).background(EGreen))
         }
     } }
@@ -632,10 +650,10 @@ fun Poster(item: Item?, src: String, w: Int, modifier: Modifier, fallback: Strin
     Box(modifier.clip(RoundedCornerShape(round)).background(ECard)) {
         if (src.isEmpty() || icon != null) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (icon != null) Icon(icon, null, tint = EFg, modifier = Modifier.fillMaxSize(0.4f))
-            else Text(fallback, color = ESub, textAlign = TextAlign.Center, modifier = Modifier.padding(8.dp), fontSize = 14.sp)
+            else Text(fallback.ifEmpty { item?.name ?: "" }, color = ESub, textAlign = TextAlign.Center, modifier = Modifier.padding(8.dp), fontSize = 14.sp)
         }
         if (src.isNotEmpty() && !Look.posters) Box(Modifier.fillMaxSize().background(EBtn2), contentAlignment = Alignment.Center) {
-            Text(fallback, color = EFg, textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, modifier = Modifier.padding(10.dp), fontSize = 16.sp)
+            Text(fallback.ifEmpty { item?.name ?: "" }, color = EFg, textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, modifier = Modifier.padding(10.dp), fontSize = 16.sp)
         }
         else if (src.isNotEmpty()) AsyncImage(picUrl(src, w), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         if (item != null) {
@@ -646,7 +664,7 @@ fun Poster(item: Item?, src: String, w: Int, modifier: Modifier, fallback: Strin
             }
             if (item.hasAd == true && item.type != "Book") AdMark(Modifier.align(Alignment.TopStart).padding(8.dp))
             if (item.hasAd == false) Text(
-                "No AD", color = EFg, fontSize = 11.sp,
+                "No AD", color = Color.White, fontSize = 11.sp,
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Color(0xC0000000), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp)
             )
             if (item.pct in 1..99 && !played) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Color(0x66000000))) {
@@ -718,7 +736,8 @@ private fun Loading(err: String) {
 @Composable
 private fun OfflineNote() {
     if (!Engine.offline) return
-    Column(Modifier.fillMaxWidth().padding(16.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF3A1F1F)).padding(14.dp)) {
+    Column(Modifier.fillMaxWidth().padding(16.dp).clip(RoundedCornerShape(10.dp)).background(if (Look.low) EBtn2 else Color(0xFF3A1F1F))
+        .then(if (Look.low) Modifier.border(Look.line, ELine, RoundedCornerShape(10.dp)) else Modifier).padding(14.dp)) {
         Text("Can't reach the PC - what's downloaded still plays.", color = EFg)
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 6.dp)) {
             Text("Try again", color = EGreen, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { Engine.boot() })
@@ -738,7 +757,7 @@ fun UpdateCard() {
         Text("Version ${Update.available} is ready", color = EFg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         Text("You have ${Update.mine}.", color = ESub, fontSize = 14.sp)
         if (more) Text(Update.notes, color = EFg, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
-        if (Update.message.isNotEmpty()) Text(Update.message, color = Color(0xFFFFB74D), fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+        if (Update.message.isNotEmpty()) Text(Update.message, color = EWarn, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             if (Update.progress >= 0) {
                 // Install greyed out while it downloads
@@ -763,7 +782,8 @@ private fun InviteCards() {
     Engine.invites.forEach { r ->
         val w = (if (r.s("kind") == "book") "listen to " else "watch ") + r.s("title")
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF1E3A1D)).padding(12.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(12.dp)).background(if (Look.low) EBtn2 else Color(0xFF1E3A1D))
+                .then(if (Look.low) Modifier.border(Look.line, ELine, RoundedCornerShape(12.dp)) else Modifier).padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(Ic.Group, null, tint = EGreen)
@@ -839,7 +859,7 @@ private fun WebRowTitle(text: String, onAll: (() -> Unit)?) {
         Text(text, color = EFg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 27.sp,
             modifier = Modifier.weight(1f).semantics { heading() })
         if (onAll != null) Text("See all", color = ESub, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onAll).padding(horizontal = 8.dp, vertical = 8.dp)
+            modifier = Modifier.heightIn(min = if (Look.low) 56.dp else 0.dp).clip(RoundedCornerShape(10.dp)).clickable(onClick = onAll).padding(horizontal = 8.dp, vertical = 8.dp)
                 .semantics { contentDescription = "See all: $text"; role = Role.Button })
     }
 }
@@ -930,7 +950,7 @@ private fun HeroPager(list: List<Pair<Item, String>>) {
                 val on = pager.currentPage == j
                 val t = if (it.type == "Episode") it.seriesName.ifEmpty { it.label } else it.name
                 Box(
-                    Modifier.size(width = 34.dp, height = 28.dp).clickable { scope.launch { if (still) pager.scrollToPage(j) else pager.animateScrollToPage(j) } }
+                    Modifier.size(width = if (Look.low) 48.dp else 34.dp, height = if (Look.low) 48.dp else 28.dp).clickable { scope.launch { if (still) pager.scrollToPage(j) else pager.animateScrollToPage(j) } }
                         .semantics { contentDescription = "Featured ${j + 1} of ${list.size}: $t" + if (on) ", showing" else ""; role = Role.Button },
                     contentAlignment = Alignment.CenterStart
                 ) { Box(Modifier.size(width = if (on) 28.dp else 16.dp, height = 4.dp).clip(RoundedCornerShape(2.dp)).background(if (on) (if (Look.low) EFg else Color.White) else if (Look.low) ESub.copy(alpha = 0.5f) else Color(0x66FFFFFF))) }
@@ -969,7 +989,7 @@ private fun HeroSlide(it: Item, k: String) {
         return
     }
     Box(Modifier.fillMaxWidth().height(560.dp).background(Color.Black)) {
-        if (art.isNotEmpty()) AsyncImage(picUrl(art, if ("/Backdrop" in art) 1920 else 1280), null, Img.loader, Modifier.fillMaxSize(),
+        if (art.isNotEmpty() && Look.posters) AsyncImage(picUrl(art, if ("/Backdrop" in art) 1920 else 1280), null, Img.loader, Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color(0x1A0B0D11), 0.58f to Color(0xB80B0D11), 1f to EBg)))
         Column(Modifier.align(Alignment.BottomStart).padding(start = 16.dp, end = 16.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1142,7 +1162,7 @@ private fun Hero(info: Item?, listState: LazyListState?, content: @Composable ()
     val src = (if (info?.type == "Episode") info.thumb.ifEmpty { info.backdrop } else info?.backdrop?.ifEmpty { info.thumb }) ?: ""
     val conf = androidx.compose.ui.platform.LocalConfiguration.current
     Box(Modifier.fillMaxWidth().aspectRatio(if (conf.screenWidthDp > conf.screenHeightDp) 3f else 0.98f)) {
-        if (src.isNotEmpty()) AsyncImage(picUrl(src, 1280), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        if (src.isNotEmpty() && Look.posters) AsyncImage(picUrl(src, 1280), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to EBg)))
         Box(Modifier.align(Alignment.BottomStart).padding(start = 16.dp, end = 16.dp, bottom = 4.dp)) { content() }
     }
@@ -1181,7 +1201,7 @@ private fun MetaRow(info: Item) {
         if (info.rating.isNotEmpty()) Text(info.rating, color = EFg, fontSize = 15.sp,
             modifier = style.border(1.dp, EFg, RoundedCornerShape(3.dp)).padding(horizontal = 5.dp, vertical = 1.dp))
         t(info.genres.split(", ").take(2).joinToString(", "))
-        if (info.hasAd == false) Text("No audio description", color = Color(0xFFFFB74D), fontSize = 15.sp, modifier = style)
+        if (info.hasAd == false) Text("No audio description", color = EWarn, fontSize = 15.sp, modifier = style)
     }
 }
 
@@ -1267,7 +1287,7 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                 val bd = info.backdrop.ifEmpty { j.s("series_backdrop") }
                 Box(Modifier.fillMaxWidth()) {
                     Box(Modifier.fillMaxWidth().height(220.dp).background(ECard)) {
-                        if (bd.isNotEmpty()) AsyncImage(picUrl(bd, 1920), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        if (bd.isNotEmpty() && Look.posters) AsyncImage(picUrl(bd, 1920), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.3f to Color(0x000B0D11), 1f to EBg)))
                     }
                     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 80.dp), verticalAlignment = Alignment.Bottom) {
@@ -1284,7 +1304,7 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                             if (meta.isNotEmpty()) Text(meta, color = ESub, fontSize = 15.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 4.dp))
                             if (info.resume.isNotEmpty()) Text((if (info.pct > 0) "${info.pct}% watched · " else "") + "Resumes at ${info.resume}",
                                 color = ESub, fontSize = 15.sp, lineHeight = 20.sp)
-                            if (info.hasAd == false) Text("Without description", color = Color(0xFFFFB74D), fontSize = 15.sp)
+                            if (info.hasAd == false) Text("Without description", color = EWarn, fontSize = 15.sp)
                         }
                     }
                 }
@@ -1366,7 +1386,7 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                         items(people) { pp ->
                             Column(Modifier.width(96.dp).semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally) {
                                 Box(Modifier.size(84.dp).clip(CircleShape).background(EBtn2), contentAlignment = Alignment.Center) {
-                                    if (pp.s("image").isNotEmpty()) AsyncImage(picUrl(pp.s("image"), 240), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                    if (pp.s("image").isNotEmpty() && Look.posters) AsyncImage(picUrl(pp.s("image"), 240), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                                     else Icon(Ic.Person, null, tint = ESub, modifier = Modifier.size(40.dp))
                                 }
                                 Text(pp.s("name"), color = EFg, fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
@@ -1385,11 +1405,12 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
 
 /** A pressed / not pressed button in a row of choices (seasons, filters), as on the web page. */
 @Composable
-fun Chip(text: String, on: Boolean, onClick: () -> Unit) {
+fun Chip(text: String, on: Boolean, radio: Boolean = false, onClick: () -> Unit) {
     Box(
         Modifier.heightIn(min = if (Look.low) 60.dp else 42.dp).focusRing().clip(RoundedCornerShape(if (Look.low) 14.dp else 21.dp)).background(if (on) EMain else EBtn2)
             .then(if (on && !Look.low) Modifier else Modifier.border(Look.line, if (on) EMain else ELine, RoundedCornerShape(if (Look.low) 14.dp else 21.dp)))
-            .clickable(onClick = onClick).semantics { role = Role.Button; selected = on }.padding(horizontal = 18.dp),
+            .then(if (radio) Modifier.selectable(selected = on, role = Role.RadioButton, onClick = onClick) else Modifier.clickable(onClick = onClick).semantics { role = Role.Button; selected = on })
+            .padding(horizontal = 18.dp),
         contentAlignment = Alignment.Center
     ) { Text(text, color = if (on) EInk else EFg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
 }
@@ -1502,7 +1523,7 @@ private fun EpisodeCard(item: Item) {
                     Modifier.align(Alignment.Center).size(46.dp).clip(CircleShape).background(Color(0x55000000))
                         .border(BorderStroke(3.dp, Color.White), CircleShape),
                     contentAlignment = Alignment.Center
-                ) { Icon(Ic.Play, null, tint = EFg, modifier = Modifier.size(28.dp)) }
+                ) { Icon(Ic.Play, null, tint = Color.White, modifier = Modifier.size(28.dp)) }
             }
             Column(Modifier.weight(1f).clickable(onClick = page).padding(start = 14.dp, top = 4.dp, bottom = 4.dp)
                 .semantics(mergeDescendants = true) { contentDescription = "About " + item.spoken(); role = Role.Button }) {
@@ -1534,7 +1555,7 @@ private fun EpisodeCard(item: Item) {
         }
         if (item.overview.isNotEmpty()) Text(item.overview, color = ESub, fontSize = 16.sp, lineHeight = 22.sp, maxLines = 3,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp).clickable(onClick = page))
-        if (item.hasAd == false) Text("No audio description", color = Color(0xFFFFB74D), fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
+        if (item.hasAd == false) Text("No audio description", color = EWarn, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
     }
     if (dl) DownloadChoices(item) { dl = false }
 }
@@ -1600,7 +1621,7 @@ private fun DownloadsPage(p: Page, openDrawer: () -> Unit) {
                         Text(s.title, color = EFg, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(s.kindText(), color = ESub, fontSize = 13.sp)
                         Offline.detail(s).forEachIndexed { i, line ->
-                            Text(line, color = if (s.state == "failed") Color(0xFFFF8A80) else if (i == 0) Color(0xFFDDDDDD) else ESub, fontSize = 13.sp)
+                            Text(line, color = if (s.state == "failed") Color(0xFFFF8A80) else if (i == 0) EFg else ESub, fontSize = 13.sp)
                         }
                         if (s.state == "preparing" || s.state == "downloading")
                             LinearProgressIndicator(progress = { s.progress / 100f }, color = EGreen, trackColor = ECard,
@@ -1799,7 +1820,7 @@ private fun SightGroup(t: String) = Text(t, color = EFg, fontSize = 20.sp, fontW
 @Composable
 private fun SightPicks(opts: List<Pair<String, String>>, cur: String, onPick: (String, String) -> Unit) {
     FlowRow(Modifier.padding(horizontal = 16.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        opts.forEach { (k, l) -> Chip(l, cur == k) { if (cur != k) onPick(k, l) } }
+        opts.forEach { (k, l) -> Chip(l, cur == k, radio = true) { if (cur != k) onPick(k, l) } }
     }
 }
 
@@ -1887,7 +1908,7 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
                             }
                         }
                         item { SightGroup("More") }
-                        listOf("video" to "Show the video when playing", "focus" to "Extra-thick outline on what is selected",
+                        listOfNotNull(("video" to "Show the video when playing").takeIf { Engine.role == "watch" }, "focus" to "Extra-thick outline on what is selected",
                             "still" to "Turn off moving animations", "posters" to "Show posters and covers").forEach { (k, l) ->
                             item {
                                 val on = Engine.sOn(k)

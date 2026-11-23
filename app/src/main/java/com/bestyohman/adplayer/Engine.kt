@@ -41,7 +41,8 @@ object Engine {
     /** How she sees the screen (kept on the PC for each person, as on the web page): "none" = the audio-only layout
      *  (made for TalkBack), "low" = big text and high contrast, "full" = posters and rows. */
     val sight: String get() = me?.s("sight")?.takeIf { it == "none" || it == "low" || it == "full" } ?: if (role == "watch") "full" else "none"
-    val sightChosen: Boolean get() = me?.b("sight_chosen") == true
+    /** An older PC doesn't know about this at all: then it's not asked (it couldn't be saved there). */
+    val sightChosen: Boolean get() = me?.let { !it.has("sight_chosen") || it.b("sight_chosen") } ?: true
     /** Low vision's own settings: size (normal, large, larger, largest), screen (dark, light, yellow), video, focus, still, posters. */
     fun sOpt(k: String): String {
         val o = me?.optJSONObject("sight_opts")
@@ -55,7 +56,10 @@ object Engine {
     val videoOK: Boolean get() = role == "watch" && (sight == "full" || (sight == "low" && sOn("video")))
 
     /** Saves how she sees the screen (or a low-vision setting) on the PC; used at once. */
+    private var sightSeq = 0
     fun sightSave(ch: Map<String, String>, msg: String = "") {
+        val before = me
+        val seq = ++sightSeq
         val m = JSONObject((me ?: JSONObject()).toString())
         val o = m.optJSONObject("sight_opts") ?: JSONObject()
         ch.forEach { (k, v) ->
@@ -72,12 +76,21 @@ object Engine {
         if (wasVideo != videoOK) videoSwitched()
         launchSafe {
             val d = Api.post("/api/play/sight", ch)
-            if (d.err().isNotEmpty()) { say(d.err()); return@launchSafe }
+            if (seq != sightSeq) return@launchSafe          // pressed again since: only the last answer counts
+            if (d.err().isNotEmpty()) {                     // not saved on the PC: back to how it was
+                say(d.err())
+                val was = videoOK
+                me = before; before?.let { Prefs.put("me", it.toString()) }
+                if (was != videoOK) videoSwitched()
+                return@launchSafe
+            }
             if (d.has("sight")) {
+                val was = videoOK
                 val n = JSONObject((me ?: JSONObject()).toString())
                 n.put("sight", d.s("sight")); n.put("sight_chosen", d.b("sight_chosen"))
                 d.optJSONObject("sight_opts")?.let { n.put("sight_opts", it) }
                 me = n; Prefs.put("me", n.toString())
+                if (was != videoOK) videoSwitched()
             }
         }
     }

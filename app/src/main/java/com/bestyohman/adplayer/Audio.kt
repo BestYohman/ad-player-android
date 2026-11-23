@@ -132,8 +132,8 @@ fun AudioScreen(act: MainActivity) {
                 IconButton(onClick = { dialog = "cast" }) { Icon(Ic.Cast, "Play on", tint = EFg) }
             }
             Spacer(Modifier.weight(0.4f))
-            Box(Modifier.widthIn(max = 420.dp).fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp)).background(Color(0x22FFFFFF))) {
-                AsyncImage(req, null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+            Box(Modifier.widthIn(max = 420.dp).fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp)).background(if (Look.low) EBtn2 else Color(0x22FFFFFF))) {
+                if (Look.posters) AsyncImage(req, null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
                     onSuccess = { s -> tint = shadeOf(s.result.drawable) })
             }
             Spacer(Modifier.weight(0.5f))
@@ -169,11 +169,11 @@ fun AudioScreen(act: MainActivity) {
                 value = inSeg.toFloat(), valueRange = 0f..segLen.toFloat(),
                 onValueChange = { dragging = true; dragTo = it },
                 onValueChangeFinished = { Engine.seekTo(segStart + dragTo); dragging = false },
-                colors = SliderDefaults.colors(thumbColor = EFg, activeTrackColor = EFg, inactiveTrackColor = Color(0x55FFFFFF)),
+                colors = SliderDefaults.colors(thumbColor = EFg, activeTrackColor = EFg, inactiveTrackColor = ESub.copy(alpha = 0.35f)),
                 thumb = { Box(Modifier.size(14.dp).background(EFg, CircleShape)) },
                 track = { s ->
                     val f = ((s.value - s.valueRange.start) / (s.valueRange.endInclusive - s.valueRange.start).coerceAtLeast(0.001f)).coerceIn(0f, 1f)
-                    Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color(0x55FFFFFF))) {
+                    Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(ESub.copy(alpha = 0.35f))) {
                         Box(Modifier.fillMaxWidth(f).fillMaxHeight().background(EFg))
                     }
                 },
@@ -209,8 +209,8 @@ fun AudioScreen(act: MainActivity) {
                     value = exo.volume, onValueChange = { exo.volume = it }, valueRange = 0f..1f,
                     thumb = { Box(Modifier.size(12.dp).background(EFg, CircleShape)) },
                     track = { s ->
-                        Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color(0x55FFFFFF))) {
-                            Box(Modifier.fillMaxWidth(s.value.coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFFCFCFC4)))
+                        Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(ESub.copy(alpha = 0.35f))) {
+                            Box(Modifier.fillMaxWidth(s.value.coerceIn(0f, 1f)).fillMaxHeight().background(if (Look.low) EFg else Color(0xFFCFCFC4)))
                         }
                     },
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp).semantics { contentDescription = "Volume" }
@@ -272,7 +272,7 @@ fun AudioScreen(act: MainActivity) {
 @Composable
 private fun Small(icon: ImageVector, label: String, enabled: Boolean = true, tint: Color = EFg, onTap: () -> Unit) {
     IconButton(onClick = onTap, enabled = enabled, modifier = Modifier.size(52.dp)) {
-        Icon(icon, label, tint = if (enabled) tint else Color(0x55FFFFFF), modifier = Modifier.size(32.dp))
+        Icon(icon, label, tint = if (enabled) tint else ESub.copy(alpha = 0.35f), modifier = Modifier.size(32.dp))
     }
 }
 

@@ -1,5 +1,6 @@
 package com.bestyohman.adplayer
 
+import androidx.compose.runtime.SideEffect
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.heightIn
 import android.content.Context
@@ -108,6 +109,15 @@ private fun LazyGridScope.full(content: @Composable () -> Unit) =
 
 @Composable
 fun AppRoot(act: MainActivity) {
+    val view = androidx.compose.ui.platform.LocalView.current
+    val sysDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val watch = Engine.screen == "main" && Engine.sightChosen && Engine.watchUI
+    SideEffect {      // the watch app sets its own; the first-run question is dark; the rest follow the phone
+        if (!watch) androidx.core.view.WindowCompat.getInsetsController(act.window, view).apply {
+            val light = !(Engine.screen == "main" && !Engine.sightChosen) && !sysDark
+            isAppearanceLightStatusBars = light; isAppearanceLightNavigationBars = light
+        }
+    }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         when (Engine.screen) {
             "server" -> ServerScreen()
@@ -681,12 +691,11 @@ private fun DownloadButton(item: Item) {
 fun DownloadChoices(item: Item, onClose: () -> Unit) {
     ChoiceDialog(
         "Download ${item.label}",
-        listOf(
+        (if (Engine.role == "watch") listOf(
             "video:original" to "The video - original quality (biggest)",
             "video:medium" to "The video - medium quality (about 1.4 GB an hour)",
-            "video:small" to "The video - small (about 0.7 GB an hour)",
-            "audio:original" to "Just the audio description (about 70 MB an hour - also for the car)"
-        ),
+            "video:small" to "The video - small (about 0.7 GB an hour)"
+        ) else emptyList()) + listOf("audio:original" to "Just the audio description (about 70 MB an hour - also for the car)"),
         "", { Offline.download(item, it.substringBefore(':'), it.substringAfter(':')) }, onClose
     )
 }
