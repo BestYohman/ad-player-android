@@ -177,6 +177,7 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
     val ep = info?.type == "Episode"
     val conf = androidx.compose.ui.platform.LocalConfiguration.current
     val land = conf.screenWidthDp > conf.screenHeightDp            // sideways: a lower, wider layout
+    if (!land) { WebControls(v, info, act, touch, openSheet, openDialog, lock); return }
     Box(
         Modifier.fillMaxSize().background(
             Brush.verticalGradient(0f to Color(0xB0000000), 0.25f to Color(0x30000000), 0.55f to Color(0x30000000), 1f to Color(0xD0000000))
@@ -264,6 +265,100 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
                 Tabs(info, ep, openSheet)
             }
         }
+    }
+}
+
+/** The player upright, as on the web page: "Now playing" and the name at the top; Back 10, Play / Pause and Forward 30
+ *  in round glass buttons over the picture; the time bar; then the buttons with their names under them. */
+@kotlin.OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun WebControls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () -> Unit, openSheet: (String) -> Unit,
+                        openDialog: (String) -> Unit, lock: () -> Unit) {
+    val exo = PlayerHolder.exo
+    @Suppress("UNUSED_VARIABLE") val t = Engine.tick
+    val dur = (if (v.runtime > 0) v.runtime else max(0.0, exo.duration / 1000.0)).coerceAtLeast(1.0)
+    val pos = (exo.currentPosition / 1000.0).coerceIn(0.0, dur)
+    var dragging by remember { mutableStateOf(false) }
+    var dragTo by remember { mutableFloatStateOf(0f) }
+    val shownPos = if (dragging) dragTo.toDouble() else pos
+    val ep = info?.type == "Episode"
+    val local = Engine.tg == null
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color(0xE60B0D11), 0.2f to Color(0x000B0D11), 0.62f to Color(0x000B0D11), 0.8f to Color(0xF00B0D11)))) {
+        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 6.dp, end = 12.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { W.player = false }, modifier = Modifier.size(48.dp)) {
+                Icon(Ic.Back, "Back - it keeps playing", tint = Color.White, modifier = Modifier.size(26.dp))
+            }
+            Column(Modifier.weight(1f).padding(start = 4.dp)) {
+                Text("NOW PLAYING", color = ESub, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.2.sp)
+                Text(info?.let { if (ep) "${it.seriesName} ${it.epTitle()}".trim() else it.name } ?: v.title, color = Color.White, fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold, lineHeight = 24.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (Engine.tg != null) Text("Playing together", color = EGreen, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+            GlassButton(Ic.Cast, "Play on", wide = true) { openDialog("cast") }
+        }
+        Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(36.dp)) {
+            GlassRound(Ic.Replay, if (local) "Back 10 seconds" else "Back 30 seconds", 60.dp) { Engine.cmd(if (local) "back10" else "back30"); touch() }
+            val paused = !exo.playWhenReady
+            GlassRound(if (paused) Ic.Play else Ic.Pause, if (paused) "Play" else "Pause", 84.dp) { Engine.cmd("playpause"); touch() }
+            GlassRound(Ic.Forward, "Forward 30 seconds", 60.dp) { Engine.cmd("fwd30"); touch() }
+        }
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(clock(shownPos), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Slider(
+                    value = shownPos.toFloat(), valueRange = 0f..dur.toFloat(),
+                    onValueChange = { dragging = true; dragTo = it; touch() },
+                    onValueChangeFinished = { PlayerHolder.session.seekTo((dragTo * 1000).toLong()); dragging = false; touch() },
+                    thumb = { Box(Modifier.size(22.dp).background(EGreen, CircleShape).padding(4.dp).background(Color.White, CircleShape)) },
+                    track = { s ->
+                        val span = (s.valueRange.endInclusive - s.valueRange.start).coerceAtLeast(0.001f)
+                        val f = ((s.value - s.valueRange.start) / span).coerceIn(0f, 1f)
+                        Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(Color(0x40FFFFFF))) {
+                            Box(Modifier.fillMaxWidth(f).fillMaxHeight().background(EGreen))
+                        }
+                    },
+                    modifier = Modifier.weight(1f).padding(horizontal = 10.dp).height(40.dp)
+                        .semantics { contentDescription = "Position ${clock(shownPos)} of ${clock(dur)}" }
+                )
+                Text("-" + clock(dur - shownPos), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Box(Modifier.fillMaxWidth().padding(vertical = 8.dp).height(1.dp).background(ELine))
+            androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                NamedBtn(Ic.Stop, if (Engine.tg != null) "Stop for everyone" else "Stop") { Engine.stopPressed { W.player = false } }
+                if (v.hasNext || ep) NamedBtn(Ic.Next, "Next episode") { Engine.cmd("next"); touch() }
+                NamedBtn(Ic.Rotate, "Full screen") { act.toggleLandscape(); touch() }
+                NamedBtn(Ic.Lock, "Lock the screen") { lock() }
+                NamedBtn(Ic.Speed, "Speed") { if (Engine.tg != null) Engine.say("The speed stays the same while playing together.") else openDialog("speed") }
+                NamedBtn(Ic.Settings, "Settings") { openDialog("settings") }
+                NamedBtn(Ic.Info, "Info") { openSheet("info") }
+                if (info?.j?.optJSONArray("chapters").objs().isNotEmpty()) NamedBtn(Ic.ListIc, "Chapters") { openSheet("chapters") }
+                if (ep) NamedBtn(Ic.Next, "Up next") { openSheet("next") }
+            }
+        }
+    }
+}
+
+/** A round glass button over the picture (Back, Play / Pause, Forward), as on the web page. */
+@Composable
+private fun GlassRound(icon: ImageVector, label: String, size: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {
+    Box(
+        Modifier.size(size).clip(CircleShape).background(Color(0x40FFFFFF)).clickable(onClick = onClick)
+            .semantics { contentDescription = label; role = androidx.compose.ui.semantics.Role.Button },
+        contentAlignment = Alignment.Center
+    ) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(size * 0.55f)) }
+}
+
+/** A player button with its name under it, as on the web page. */
+@Composable
+private fun NamedBtn(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Column(
+        Modifier.width(104.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick)
+            .semantics(mergeDescendants = true) { role = androidx.compose.ui.semantics.Role.Button }.padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(icon, null, tint = Color.White, modifier = Modifier.size(26.dp))
+        Text(label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.padding(top = 6.dp))
     }
 }
 
