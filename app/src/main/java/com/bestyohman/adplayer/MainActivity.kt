@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
         if (Engine.screen == "boot" || Engine.me == null) Engine.boot()
         openLink(intent)
         voiceSearch(intent)
+        joinFrom(intent)
     }
 
     /** "Hey Google, play ... on AD Player": the best match on the PC, played where it plays now. */
