@@ -35,6 +35,8 @@ adb shell input text "yoh"; sleep 1
 key 66; adb shell input text "pw"; sleep 1
 key 66
 shot tv_01_sight 8
+key 20; key 20
+shot tv_01b_sight_focus 2
 tapon "Full vision"
 shot tv_02_home 8
 key 22; key 22

@@ -118,6 +118,11 @@ fun AppRoot(act: MainActivity) {
             isAppearanceLightStatusBars = light; isAppearanceLightNavigationBars = light
         }
     }
+    // a new screen (signed in, chosen how she sees): the keyboard from the last one goes away
+    val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    LaunchedEffect(Engine.screen, Engine.sightChosen, Engine.watchUI) { kb?.hide() }
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.LocalIndication provides
+        (if (Engine.isTv) TvFocusIndication else androidx.compose.foundation.LocalIndication.current)) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         when (Engine.screen) {
             "server" -> ServerScreen()
@@ -132,6 +137,7 @@ fun AppRoot(act: MainActivity) {
             }
         }
         StopAllDialog()
+    }
     }
 }
 

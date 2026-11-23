@@ -1,5 +1,6 @@
 package com.bestyohman.adplayer
 
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -1846,12 +1847,12 @@ fun sightSaid(v: String) = sightName(v) + when (v) {
 
 /** No vision, low vision, full vision: one press chooses (as on the web page). */
 @Composable
-fun SightChoices(cur: String, onPick: (String) -> Unit) {
+fun SightChoices(cur: String, first: Modifier = Modifier, onPick: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.selectableGroup()) {
-        SIGHTS.forEach { x ->
+        SIGHTS.forEachIndexed { i, x ->
             val on = x[0] == cur
             Row(
-                Modifier.fillMaxWidth().focusRing(RoundedCornerShape(18.dp)).clip(RoundedCornerShape(18.dp)).background(EBtn2)
+                Modifier.fillMaxWidth().then(if (i == 0) first else Modifier).focusRing(RoundedCornerShape(18.dp)).clip(RoundedCornerShape(18.dp)).background(EBtn2)
                     .border(if (on) Look.line + 2.dp else maxOf(Look.line, 1.dp), if (on) EGreen else ELine, RoundedCornerShape(18.dp))
                     .selectable(selected = on, role = Role.RadioButton) { onPick(x[0]) }
                     .padding(18.dp),
@@ -1885,13 +1886,15 @@ private fun SightPicks(opts: List<Pair<String, String>>, cur: String, onPick: (S
 /** Asked once, at the first sign-in (as on the web page); kept on the PC, so it's the same everywhere she signs in. */
 @Composable
 fun SightScreen() {
+    val fr = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { if (Engine.isTv) { kotlinx.coroutines.delay(300); try { fr.requestFocus() } catch (e: Exception) { } } }   // the remote starts on the first choice
     Surface(Modifier.fillMaxSize(), color = EBg) {
         Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp)) {
             Text("How do you see the screen?", color = EFg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,
                 modifier = Modifier.padding(top = 12.dp).semantics { heading() })
             Text("Press the one that fits you. Everything works with TalkBack either way. You can change this any time under You.",
                 color = ESub, fontSize = 16.sp, lineHeight = 23.sp, modifier = Modifier.padding(top = 8.dp, bottom = 18.dp))
-            SightChoices(if (Engine.sightChosen) Engine.sight else "") { v -> Engine.sightSave(mapOf("sight" to v), sightSaid(v)) }
+            SightChoices(if (Engine.sightChosen) Engine.sight else "", Modifier.focusRequester(fr)) { v -> Engine.sightSave(mapOf("sight" to v), sightSaid(v)) }
         }
     }
 }
