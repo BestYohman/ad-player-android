@@ -195,6 +195,7 @@ object Engine {
                 loadDevices(false)
                 if (stack.isEmpty()) openList(if (what == "books") "books_continue" else "continue_$what", quiet = true)
                 pollInvites()
+                if (joinWhenReady.isNotEmpty()) { val r = joinWhenReady; joinWhenReady = ""; TogetherNote.cancel(r); tgJoin(r) }
             } catch (e: ApiError) {
                 if (e.login) { screen = "signin" }
                 else if (Prefs.token.isNotEmpty() && Offline.items.any { it.done }) {
@@ -1586,12 +1587,13 @@ object Engine {
     }
 
     var inviting by mutableStateOf<List<JSONObject>?>(null)     // the people she can invite (the picker is open)
+    var joinWhenReady = ""          // the notification's Join, pressed before the app had signed in
 
     /** Only people who can sign in to the player; the ones already playing or invited aren't offered again. */
     fun inviteOpen(first: Boolean = false) = launchSafe {
         val t = tg ?: return@launchSafe
         val ppl = Api.get("/api/play/people").optJSONArray("people").objs()
-        val have = t.last.optJSONArray("people").objs().map { it.s("name") }.toSet()
+        val have = t.last.optJSONArray("people").objs().filter { it.s("state") != "declined" }.map { it.s("name") }.toSet()
         val avail = ppl.filter { it.s("name") !in have }
         if (avail.isEmpty()) { if (!first) say(if (ppl.isEmpty()) "Nobody else can sign in to the player." else "Everyone is already invited or playing."); return@launchSafe }
         if (tg === t) inviting = avail
@@ -1612,7 +1614,7 @@ object Engine {
         t.kind = d.s("kind"); t.role = d.s("role"); t.msgSeq = d.i("msg_seq"); t.last = d; t.jseq = d.i("jseq")
         skips = 0; stalls = 0
         tg = t
-        invites = emptyList(); TogetherNote.cancelAll()
+        TogetherNote.cancelAll(); invites = emptyList()
         browse = false
         tgApply(d)
         tgJob?.cancel()
@@ -1986,8 +1988,9 @@ object Engine {
             if (tg != null) return
             val rs = d.optJSONArray("rooms").objs().filter { it.s("id") !in invNo }
             invites = rs
+            TogetherNote.keepOnly(rs.map { it.s("id") }.toSet())
             for (r in rs) {
-                if (seenInvites.add(r.s("id"))) {
+                if (seenInvites.add(r.s("id") + if (r.b("invited")) ":i" else "")) {     // (again when an invitation comes for a room already listed)
                     if (foreground) say(inviteLine(r) + " The Join button is at the top.")
                     else if (r.b("invited")) TogetherNote.show(r.s("id"), inviteLine(r))
                 }

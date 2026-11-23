@@ -68,6 +68,7 @@ import java.util.Locale
 /** A phone notification for a play together invitation (while the app is in the background). */
 object TogetherNote {
     private const val CHANNEL = "together"
+    private val posted = mutableSetOf<String>()
     private fun nm() = PlayerHolder.app.getSystemService(NotificationManager::class.java)
 
     fun show(room: String, text: String) {
@@ -94,12 +95,14 @@ object TogetherNote {
                 .setCategory(Notification.CATEGORY_SOCIAL)
                 .setPriority(Notification.PRIORITY_HIGH)
                 .build()
-            nm.notify(room.hashCode(), n)
+            nm.notify(room.hashCode(), n); posted.add(room)
         } catch (e: Exception) { }
     }
 
-    fun cancel(room: String) { try { nm().cancel(room.hashCode()) } catch (e: Exception) { } }
-    fun cancelAll() { try { Engine.invites.forEach { cancel(it.s("id")) } } catch (e: Exception) { } }
+    fun cancel(room: String) { try { nm().cancel(room.hashCode()); posted.remove(room) } catch (e: Exception) { } }
+    fun cancelAll() { posted.toList().forEach { cancel(it) } }
+    /** Rooms that have ended: their notifications go. */
+    fun keepOnly(rooms: Set<String>) { posted.filter { it !in rooms }.forEach { cancel(it) } }
 }
 
 /** What's going on while playing together: one line, what each phone is doing, what happened lately, and Invite. */

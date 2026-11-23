@@ -81,14 +81,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** The notification's Join button: join now, or as soon as the app has signed in. */
+    private fun joinFrom(intent: android.content.Intent?) {
+        if (intent?.data?.scheme != "adplayer" || intent.data?.host != "join") return
+        val r = intent.data?.getQueryParameter("room") ?: return
+        if (r.isEmpty()) return
+        if (Engine.screen == "main") { TogetherNote.cancel(r); Engine.tgJoin(r) } else Engine.joinWhenReady = r
+    }
+
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         // a "play together" notification (adplayer://join): show the Join button straight away
         if (intent.data?.scheme == "adplayer" && intent.data?.host != "open") Engine.scope.launch { try { Engine.pollInvites() } catch (e: Exception) { } }
-        // the notification's Join button
-        if (intent.data?.scheme == "adplayer" && intent.data?.host == "join") intent.data?.getQueryParameter("room")?.let { r ->
-            if (r.isNotEmpty() && Engine.screen == "main") { TogetherNote.cancel(r); Engine.tgJoin(r) }
-        }
+        joinFrom(intent)
         openLink(intent)
         voiceSearch(intent)
     }
