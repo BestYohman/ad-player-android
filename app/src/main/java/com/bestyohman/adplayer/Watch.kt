@@ -265,7 +265,7 @@ private fun Toast(t: String) {
 @Composable
 private fun PageContent(p: Page, openDrawer: () -> Unit) {
     when (p.kind) {
-        "home" -> HomePage(p, false, openDrawer)
+        "home" -> WebHome(p)
         "favorites" -> HomePage(p, true, openDrawer)
         "library", "children", "list" -> GridPage(p, openDrawer)
         "item" -> if (p.extra == "Season") SeasonPage(p, openDrawer) else DetailPage(p, openDrawer)
@@ -494,7 +494,7 @@ fun RowTitle(text: String, onMore: (() -> Unit)? = null) {
 
 /** A picture with Emby's marks: watched tick, episodes still to watch, how far in, no AD. */
 @Composable
-fun Poster(item: Item?, src: String, w: Int, modifier: Modifier, fallback: String = "", round: Dp = 8.dp, icon: ImageVector? = null) {
+fun Poster(item: Item?, src: String, w: Int, modifier: Modifier, fallback: String = "", round: Dp = 12.dp, icon: ImageVector? = null) {
     Box(modifier.clip(RoundedCornerShape(round)).background(ECard)) {
         if (src.isEmpty() || icon != null) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (icon != null) Icon(icon, null, tint = Color.White, modifier = Modifier.fillMaxSize(0.4f))
@@ -507,6 +507,7 @@ fun Poster(item: Item?, src: String, w: Int, modifier: Modifier, fallback: Strin
                 played -> Badge(Modifier.align(Alignment.BottomEnd)) { Icon(Ic.Check, null, tint = EInk, modifier = Modifier.size(16.dp)) }
                 item.unplayed > 0 -> Badge(Modifier.align(Alignment.TopEnd)) { Text("${item.unplayed}", color = EInk, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
             }
+            if (item.hasAd == true && item.type != "Book") AdMark(Modifier.align(Alignment.TopStart).padding(8.dp))
             if (item.hasAd == false) Text(
                 "No AD", color = Color.White, fontSize = 11.sp,
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Color(0xC0000000), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp)
@@ -541,17 +542,17 @@ fun PosterCard(item: Item, width: Dp, wide: Boolean = false, square: Boolean = f
     Column(
         Modifier.width(width).combinedClickable(onClick = onTap, onLongClick = onLong)
             .clearAndSetSemantics { contentDescription = item.spoken(); role = Role.Button; onClick { onTap(); true } },
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.Start
     ) {
         val src = when {
             wide -> item.thumb.ifEmpty { item.backdrop.ifEmpty { item.poster } }
             else -> item.poster.ifEmpty { item.thumb }
         }
         Poster(item, src, if (wide) 800 else 320, Modifier.fillMaxWidth().aspectRatio(if (wide) 16f / 9f else if (square) 1f else 2f / 3f), title)
-        Text(title, color = Color.White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            textAlign = if (wide) TextAlign.Center else TextAlign.Start, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
-        if (subtitle.isNotEmpty()) Text(subtitle, color = ESub, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            textAlign = if (wide) TextAlign.Center else TextAlign.Start, modifier = Modifier.fillMaxWidth())
+        Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+        if (subtitle.isNotEmpty()) Text(subtitle, color = ESub, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -681,7 +682,172 @@ private fun Refreshable(modifier: Modifier, belowTopBar: Boolean, content: @Comp
     )
 }
 
-// ------------------------------------------------------------------------------------------- home
+// ------------------------------------------------------------------------------------------- home (as on the web page)
+/** The "AD" mark on a poster that has audio description. */
+@Composable
+fun AdMark(modifier: Modifier = Modifier) {
+    Text(
+        "AD", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 0.5.sp,
+        modifier = modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xC70B0D11))
+            .border(1.5.dp, Color.White, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 1.dp)
+            .semantics { contentDescription = "Audio description" }
+    )
+}
+
+/** A row's name, with "See all" at the right. */
+@Composable
+private fun WebRowTitle(text: String, onAll: (() -> Unit)?) {
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 26.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(text, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 27.sp,
+            modifier = Modifier.weight(1f).semantics { heading() })
+        if (onAll != null) Text("See all", color = ESub, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onAll).padding(horizontal = 8.dp, vertical = 8.dp)
+                .semantics { contentDescription = "See all: $text"; role = Role.Button })
+    }
+}
+
+private data class HomeRow(val kind: String, val title: String, val shape: String, val query: String = "")
+private val HOME_ROWS = listOf(
+    HomeRow("continue", "Continue watching", "land"), HomeRow("recent", "New with audio description", "land"),
+    HomeRow("shows", "New TV shows", "post", "&ad=all&sort=added&desc=1"), HomeRow("movies", "New movies", "post", "&ad=all&sort=added&desc=1"),
+    HomeRow("books_continue", "Audiobooks in progress", "sq")
+)
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun WebHome(p: Page) {
+    val rows = HOME_ROWS.map { r ->
+        val path = if (Engine.offline) null else if (r.kind.startsWith("books_")) "/api/play/books/list?kind=${r.kind}" else "/api/play/list?kind=${r.kind}${r.query}"
+        r to rememberData(path)
+    }
+    // the big pictures at the top: up to 3 in progress, then what's new (as on the web page)
+    val hero = remember(rows.map { it.second.first }) {
+        val pick = mutableListOf<Pair<Item, String>>()
+        listOf("continue" to 3, "recent" to 5, "movies" to 5, "shows" to 5).forEach { (k, n) ->
+            var c = 0
+            rows.firstOrNull { it.first.kind == k }?.second?.first?.itemList()?.forEach { it ->
+                val art = it.j.s("series_backdrop").ifEmpty { it.backdrop.ifEmpty { it.thumb } }
+                if (pick.size < 5 && c < n && art.isNotEmpty() && pick.none { q -> q.first.id == it.id }) { pick.add(it to k); c++ }
+            }
+        }
+        pick.toList()
+    }
+    val loading = rows.all { it.second.first == null }
+    Box(Modifier.fillMaxSize()) {
+        Refreshable(Modifier.fillMaxSize(), belowTopBar = true) {
+            LazyColumn(Modifier.fillMaxSize(), state = W.list(p), contentPadding = PaddingValues(bottom = 190.dp)) {
+                if (hero.isNotEmpty()) item { HeroPager(hero) } else item { Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars).height(84.dp)) }
+                item { OfflineNote() }
+                item { InviteCards() }
+                item { UpdateCard() }
+                if (Engine.offline) return@LazyColumn
+                if (loading) item { Loading(rows.firstOrNull { it.second.second.isNotEmpty() }?.second?.second ?: "") }
+                rows.forEach { (r, d) ->
+                    val list = d.first?.itemList()?.take(30) ?: emptyList()
+                    if (list.isEmpty()) return@forEach
+                    item(key = "h_" + r.kind) {
+                        WebRowTitle(r.title) {
+                            if (r.kind.startsWith("books_")) W.openTab("books", Page("books")) else W.go(Page("list", r.kind, r.title, r.query))
+                        }
+                    }
+                    item(key = "r_" + r.kind) {
+                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(list) { it ->
+                                when (r.shape) {
+                                    "land" -> PosterCard(it, 250.dp, wide = true,
+                                        onLong = if (it.type == "Episode" && it.seriesId.isNotEmpty()) ({ W.go(Page("item", it.seriesId, it.seriesName, "Series")) }) else null)
+                                    "sq" -> PosterCard(it, 150.dp, square = true)
+                                    else -> PosterCard(it, 124.dp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        TopBar(null, {}, solid = false, heading = false)
+    }
+}
+
+/** The big picture at the top of Home: what's in progress and what's new, one at a time (swipe or the dashes). */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HeroPager(list: List<Pair<Item, String>>) {
+    val pager = androidx.compose.foundation.pager.rememberPagerState { list.size }
+    val scope = rememberCoroutineScope()
+    Box(Modifier.fillMaxWidth()) {
+        androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxWidth()) { i -> HeroSlide(list[i].first, list[i].second) }
+        if (list.size > 1) Row(
+            Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            list.forEachIndexed { j, (it, _) ->
+                val on = pager.currentPage == j
+                val t = if (it.type == "Episode") it.seriesName.ifEmpty { it.label } else it.name
+                Box(
+                    Modifier.size(width = 34.dp, height = 28.dp).clickable { scope.launch { pager.animateScrollToPage(j) } }
+                        .semantics { contentDescription = "Featured ${j + 1} of ${list.size}: $t" + if (on) ", showing" else ""; role = Role.Button },
+                    contentAlignment = Alignment.CenterStart
+                ) { Box(Modifier.size(width = if (on) 28.dp else 16.dp, height = 4.dp).clip(RoundedCornerShape(2.dp)).background(if (on) Color.White else Color(0x66FFFFFF))) }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun HeroSlide(it: Item, k: String) {
+    val ep = it.type == "Episode"
+    val series = it.type == "Series"
+    val art = it.j.s("series_backdrop").ifEmpty { it.backdrop.ifEmpty { it.thumb } }
+    val title = if (ep) it.seriesName.ifEmpty { it.name } else it.name
+    Box(Modifier.fillMaxWidth().height(560.dp).background(Color.Black)) {
+        if (art.isNotEmpty()) AsyncImage(picUrl(art, if ("/Backdrop" in art) 1920 else 1280), null, Img.loader, Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color(0x1A0B0D11), 0.58f to Color(0xB80B0D11), 1f to EBg)))
+        Column(Modifier.align(Alignment.BottomStart).padding(start = 16.dp, end = 16.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                (if (k == "continue") "Continue watching" else if (k == "recent") "New with audio description" else "With audio description").uppercase(),
+                color = EGreen, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.6.sp
+            )
+            Text(title, color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 36.sp, maxLines = 2,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() })
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val bits = (if (ep) listOf(it.epTitle(), it.rt.ifEmpty { it.length }) else listOf(if (series) it.years else it.year, it.rt.ifEmpty { it.length }, it.rating))
+                    .filter { b -> b.isNotEmpty() }
+                Text(bits.joinToString("  ·  "), color = Color(0xFFD6DBE3), fontSize = 15.sp)
+                if (it.hasAd != false) Text("AD", color = Color(0xFFD6DBE3), fontSize = 11.sp, fontWeight = FontWeight.Black,
+                    modifier = Modifier.border(1.5.dp, Color(0xFFD6DBE3), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 1.dp)
+                        .semantics { contentDescription = "Audio description" })
+                if (it.resume.isNotEmpty()) Text("Resumes at ${it.resume}", color = Color(0xFFD6DBE3), fontSize = 15.sp)
+            }
+            if (it.overview.isNotEmpty()) Text(it.overview, color = Color(0xFFD6DBE3), fontSize = 15.sp, lineHeight = 22.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                val play = if (series) "Episodes" else if (it.resume.isNotEmpty()) "Resume" else "Play"
+                Row(
+                    Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(12.dp)).background(Color.White)
+                        .clickable { if (series) W.open(it) else Engine.start(it, it.resume.isNotEmpty()) }
+                        .semantics(mergeDescendants = true) { contentDescription = (if (series) "Open " else "$play ") + it.label.ifEmpty { title }; role = Role.Button },
+                    horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Ic.Play, null, tint = EInk, modifier = Modifier.size(22.dp))
+                    Text(play, color = EInk, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(start = 8.dp))
+                }
+                if (!series) Row(
+                    Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(12.dp)).background(Color(0x33FFFFFF))
+                        .clickable { if (!ep && it.seriesId.isNotEmpty()) W.go(Page("item", it.seriesId, it.seriesName, "Series")) else W.open(it) }
+                        .semantics(mergeDescendants = true) { contentDescription = "More about $title"; role = Role.Button },
+                    horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Ic.Info, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                    Text("More info", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(start = 8.dp))
+                }
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------- favorites
 @Composable
 private fun HomePage(p: Page, favorites: Boolean, openDrawer: () -> Unit) {
     val (home, err) = rememberData(if (favorites || Engine.offline) null else "/api/play/home")
@@ -750,7 +916,7 @@ private fun GridPage(p: Page, openDrawer: () -> Unit) {
     val path = when (p.kind) {
         "library" -> "/api/play/list?kind=library&parent=${enc(p.id)}" + view.query()
         "children" -> "/api/play/list?kind=children&parent=${enc(p.id)}"
-        else -> if (p.id == "noad") "/api/play/list?kind=noad" else "/api/play/list?kind=${enc(p.id)}"
+        else -> if (p.id == "noad") "/api/play/list?kind=noad" else "/api/play/list?kind=${enc(p.id)}" + p.extra
     }
     val (d, err) = rememberData(path)
     val list = d?.itemList()
