@@ -48,10 +48,10 @@ open "kind=item&id=m_magic&extra=Movie&title=Moonlit%20Magic%202"
 shot tv_05_movie 5
 key 111
 tapon Play
-sleep 5
+sleep 9
+shot tv_06a_player_hidden 1
 key 19
-dump; grep -q 'resource-id="com.android.inputmethod\|leanback.*ime' shots/ui.xml && key 111
-shot tv_06_player_controls 3
+shot tv_06_player_controls 1
 tapon "Continue on a phone"
 shot tv_07_send_to_phone 6
 dump; cp shots/ui.xml shots/ui_send.xml
