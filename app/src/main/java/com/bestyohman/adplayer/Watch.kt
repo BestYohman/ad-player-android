@@ -69,6 +69,8 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -150,6 +152,7 @@ object W {
     private val lists = HashMap<Page, LazyListState>()
     private val grids = HashMap<Page, LazyGridState>()
     var toast by mutableStateOf("")
+    var trk by mutableStateOf("")                      // the Audio and subtitles box is open for this video
     var toastSeq by mutableIntStateOf(0)
 
     fun go(p: Page) { stack.add(p) }
@@ -250,6 +253,7 @@ fun WatchApp(act: MainActivity) {
                 }
             }
         }
+        if (W.trk.isNotEmpty()) TrackSheet(W.trk) { W.trk = "" }
     }
 }
 
@@ -429,11 +433,80 @@ private fun MiniPlayer() {
             MiniBtn(Ic.Forward, "Forward 30 seconds") { Engine.cmd("fwd30") }
             if (st.hasNext && !st.book) MiniBtn(Ic.Next, "Next episode") { Engine.cmd("next") }
             else if (st.book && st.hasNext) MiniBtn(Ic.Next, "Next chapter") { Engine.cmd("next") }
+            val tid = trkItem()
+            if (tid.isNotEmpty()) MiniBtn(Ic.Subtitles, "Audio and subtitles") { W.trk = tid }
         }
         if (len > 0) Box(Modifier.fillMaxWidth().height(3.dp).background(Color(0x40FFFFFF))) {
             Box(Modifier.fillMaxHeight().fillMaxWidth((pos / len).toFloat().coerceIn(0f, 1f)).background(EGreen))
         }
     } }
+}
+
+/** The video whose sound track and subtitles can be changed now: on this phone, or on the TV. */
+fun trkItem(): String = when {
+    Engine.tg != null -> ""
+    Engine.mode == Engine.Mode.VIDEO -> Engine.vd?.item ?: ""
+    Engine.mode == Engine.Mode.NONE && !Engine.isPhone -> Engine.tvItem()
+    else -> ""
+}
+
+/** The Audio and subtitles box, as on the web page: comes up from the bottom; what's picked is used when it closes. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TrackSheet(id: String, close: () -> Unit) {
+    var t by remember(id) { mutableStateOf<JSONObject?>(null) }
+    var err by remember(id) { mutableStateOf("") }
+    var a by remember(id) { mutableStateOf<Int?>(null) }
+    var sv by remember(id) { mutableIntStateOf(-1) }
+    LaunchedEffect(id) {
+        try {
+            val j = Engine.tracksOf(id)
+            if (j.err().isNotEmpty()) { err = j.err(); return@LaunchedEffect }
+            val v = Engine.vd
+            val (ca, cs) = if (v != null && v.item == id) v.aidx to v.sidx else Engine.trkGet(id)
+            val dflt = if (j.has("ad_index") && !j.isNull("ad_index")) j.optInt("ad_index") else j.optInt("main_index")
+            val audio = j.optJSONArray("audio").objs(); val subs = j.optJSONArray("subs").objs()
+            a = if (ca != null && audio.any { it.optInt("index") == ca }) ca else dflt
+            sv = if (cs != null && subs.any { it.optInt("index") == cs }) cs else -1
+            t = j
+        } catch (e: Exception) { err = e.message ?: "Couldn't reach the PC." }
+    }
+    val done = { if (t != null) Engine.trkUse(id, a, sv); close() }
+    val st = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = done, sheetState = st, containerColor = ECard) {
+        LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 32.dp)) {
+            item { Text("Audio and subtitles", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.semantics { heading() }) }
+            val j = t
+            if (j == null) { item { Text(err.ifEmpty { "Loading…" }, color = ESub, modifier = Modifier.padding(vertical = 12.dp)) }; return@LazyColumn }
+            item { Text("Audio", color = ESub, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp).semantics { heading() }) }
+            val audio = j.optJSONArray("audio").objs()
+            if (audio.isEmpty()) item { Text("No sound tracks found", color = ESub) }
+            items(audio) { x -> TrkRadio(x.s("label"), a == x.optInt("index")) { a = x.optInt("index") } }
+            item { Text("Subtitles", color = ESub, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp).semantics { heading() }) }
+            val subs = j.optJSONArray("subs").objs()
+            if (subs.isEmpty()) item { Text("None in this file", color = ESub) }
+            else {
+                item { TrkRadio("Off", sv < 0) { sv = -1 } }
+                items(subs) { x -> TrkRadio(x.s("label"), sv == x.optInt("index")) { sv = x.optInt("index") } }
+            }
+            item { Box(Modifier.padding(top = 18.dp)) { WebBtn("Done", main = true, modifier = Modifier.fillMaxWidth()) { done() } } }
+        }
+    }
+}
+
+@Composable
+private fun TrkRadio(label: String, on: Boolean, onPick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (on) Color(0x242DD4BF) else Color.Transparent)
+            .clickable(onClick = onPick).semantics(mergeDescendants = true) { role = Role.RadioButton; selected = on }
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(22.dp).clip(CircleShape).border(2.dp, if (on) EGreen else ESub, CircleShape), contentAlignment = Alignment.Center) {
+            if (on) Box(Modifier.size(11.dp).clip(CircleShape).background(EGreen))
+        }
+        Text(label, color = Color.White, fontSize = 16.sp, modifier = Modifier.padding(start = 14.dp))
+    }
 }
 
 @Composable

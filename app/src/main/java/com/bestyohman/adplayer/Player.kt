@@ -141,6 +141,7 @@ fun PlayerScreen(act: MainActivity) {
         }
     }
     if (sheet.isNotEmpty()) InfoSheet(sheet, v, info) { sheet = "" }
+    if (W.trk.isNotEmpty()) TrackSheet(W.trk) { W.trk = "" }
     when (dialog) {
         "cast" -> PlayOnDialog { dialog = "" }
         "speed" -> ChoiceDialog("Speed", listOf("0.5" to "0.5 times", "0.75" to "0.75 times", "1.0" to "Normal", "1.25" to "1.25 times",
@@ -327,6 +328,7 @@ private fun WebControls(v: Engine.Vid, info: Item?, act: MainActivity, touch: ()
             androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 NamedBtn(Ic.Stop, if (Engine.tg != null) "Stop for everyone" else "Stop") { Engine.stopPressed { W.player = false } }
                 if (v.hasNext || ep) NamedBtn(Ic.Next, "Next episode") { Engine.cmd("next"); touch() }
+                if (Engine.tg == null) NamedBtn(Ic.Subtitles, "Audio and subtitles") { W.trk = v.item }
                 NamedBtn(Ic.Rotate, "Full screen") { act.toggleLandscape(); touch() }
                 NamedBtn(Ic.Lock, "Lock the screen") { lock() }
                 NamedBtn(Ic.Speed, "Speed") { if (Engine.tg != null) Engine.say("The speed stays the same while playing together.") else openDialog("speed") }

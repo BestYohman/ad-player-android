@@ -370,6 +370,37 @@ object Engine {
     }
     class Vid(val item: String, var title: String, val tg: Boolean) {
         var tok = ""; var hasNext = false; var runtime = 0.0; var mbps = 0.0
+        var aidx: Int? = null; var sidx: Int = -1                  // the sound track and subtitles it plays with (-1 = no subtitles)
+    }
+
+    // ---------------------------------------------------------------- sound track and subtitles (as on the web page)
+    /** The sound track and subtitles chosen for a video (kept on the phone): (sound track or null = the usual, subtitles or null = off). */
+    fun trkGet(id: String): Pair<Int?, Int?> {
+        val v = Prefs.str("trk_$id").split(",")
+        return v.getOrNull(0)?.toIntOrNull() to v.getOrNull(1)?.toIntOrNull()
+    }
+    fun trkSet(id: String, a: Int?, s: Int?) = Prefs.put("trk_$id", "${a ?: ""},${s ?: ""}")
+
+    /** The tracks of what's playing: what the PC says it has, and what it plays with now. */
+    suspend fun tracksOf(id: String): JSONObject = Api.get("/api/play/tracks?id=${enc(id)}")
+
+    /** Use the sound track / subtitles picked in the Audio and subtitles box (what plays on this phone starts again
+     *  where it was; on a TV the PC switches them). */
+    fun trkUse(id: String, a: Int?, s: Int) {
+        val (oa, os) = trkGet(id)
+        trkSet(id, a ?: oa, s)
+        val v = vd
+        if (mode == Mode.VIDEO && v != null && v.item == id) {
+            if (a == v.aidx && s == v.sidx) return
+            say("Changing the " + (if (a != v.aidx) "sound track" else "subtitles") + "…")
+            videoStart(v.item, v.title, false, at = exo.currentPosition / 1000.0)
+            return
+        }
+        if (mode == Mode.NONE && !isPhone) launchSafe {
+            if (a != null) { val d = Api.post("/api/play/cmd", mapOf("device" to dev, "cmd" to "audio:$a")); say(d.err().ifEmpty { d.s("message") }) }
+            if (s != os) { val d = Api.post("/api/play/cmd", mapOf("device" to dev, "cmd" to "sub:$s")); say(d.err().ifEmpty { d.s("message") }) }
+            delay(1500); refreshTv()
+        }
     }
     data class Ch(val start: Double, val end: Double, val title: String)
     data class Tr(val start: Double, val duration: Double, val url: String)
@@ -395,9 +426,12 @@ object Engine {
         }
     }
 
-    private fun playUrl(url: String, title: String, artist: String, startS: Double, play: Boolean) {
+    private fun playUrl(url: String, title: String, artist: String, startS: Double, play: Boolean, sub: String = "") {
         mediaReady = false
         val b = MediaItem.Builder().setUri(Api.url(url))
+        if (sub.isNotEmpty()) b.setSubtitleConfigurations(listOf(
+            MediaItem.SubtitleConfiguration.Builder(Uri.parse(Api.url(sub))).setMimeType(MimeTypes.TEXT_VTT)
+                .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT).setLanguage("und").build()))
             .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(artist).build())
             .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build())
         if (url.contains(".m3u8")) b.setMimeType(MimeTypes.APPLICATION_M3U8)
@@ -503,7 +537,7 @@ object Engine {
     }
 
     /** The video (Emby's stream through the PC), with the normal soundtrack. */
-    fun videoStart(id: String, label: String, resume: Boolean, tgPos: Double? = null, hint: Double = -1.0) {
+    fun videoStart(id: String, label: String, resume: Boolean, tgPos: Double? = null, hint: Double = -1.0, at: Double? = null) {
         stopPhone(true)
         val me = Vid(id, label, tgPos != null)
         vd = me; mode = Mode.VIDEO
@@ -511,7 +545,7 @@ object Engine {
         val off = Offline.done(id, "video")
         if (off != null) {                                  // downloaded: play it from the phone
             me.title = off.title; me.hasNext = off.hasNext; me.runtime = off.runtime
-            val pos = tgPos ?: if (resume) (if (off.posAt > 0 || hint <= 0) off.pos else hint) else 0.0
+            val pos = tgPos ?: at ?: if (resume) (if (off.posAt > 0 || hint <= 0) off.pos else hint) else 0.0
             playUrl(Uri.fromFile(java.io.File(off.file)).toString(), me.title, "", pos, !me.tg)
             if (!me.tg) say("Playing ${me.title} from the download" + (if (pos > 5) " from ${fmtTime(pos)}" else "") + ".")
             if (!me.tg && resume) launchSafe {
@@ -525,13 +559,15 @@ object Engine {
         stallTimes.clear()
         launchSafe {
             flushPlaces()
-            val d = videoPrepare(id, videoMbps())
+            val d = videoPrepare(id, videoMbps(), if (me.tg) (null to null) else trkGet(id))
             if (vd !== me) return@launchSafe
             if (d.err().isNotEmpty()) { say(d.err()); vd = null; mode = Mode.NONE; return@launchSafe }
             me.tok = d.s("tok"); me.title = d.s("title").ifEmpty { label }; me.hasNext = d.b("has_next")
             me.runtime = d.d("runtime_ticks") / 1e7; me.mbps = d.d("mbps")
-            val pos = tgPos ?: if (resume) d.d("resume_ticks") / 1e7 else 0.0
-            playUrl(d.s("url"), me.title, "", pos, !me.tg)
+            me.aidx = if (d.has("aidx") && !d.isNull("aidx")) d.optInt("aidx") else null
+            me.sidx = if (d.has("sidx") && !d.isNull("sidx")) d.optInt("sidx", -1) else -1
+            val pos = tgPos ?: at ?: if (resume) d.d("resume_ticks") / 1e7 else 0.0
+            playUrl(d.s("url"), me.title, "", pos, !me.tg, d.s("sub_vtt"))
             if (!me.tg) say("Playing ${me.title}" + (if (pos > 5) " from ${fmtTime(pos)}" else "") + ".")
         }
     }
@@ -592,9 +628,11 @@ object Engine {
     fun videoMbps(): Double =
         if (quality != "auto") quality.toDoubleOrNull() ?: 0.0 else Prefs.str(autoKey()).toDoubleOrNull() ?: 0.0
 
-    private suspend fun videoPrepare(id: String, mbps: Double): JSONObject {
+    private suspend fun videoPrepare(id: String, mbps: Double, trk: Pair<Int?, Int?> = null to null): JSONObject {
         val f = mutableMapOf("item" to id)
         if (mbps > 0) f["mbps"] = mbps.toString()
+        trk.first?.let { f["aidx"] = it.toString() }
+        trk.second?.let { f["sidx"] = it.toString() }
         return Api.post("/api/play/video/prepare", f)
     }
 
@@ -619,12 +657,12 @@ object Engine {
         val pos = exo.currentPosition / 1000.0
         val play = exo.playWhenReady
         launchSafe {
-            val d = videoPrepare(v.item, mbps)
+            val d = videoPrepare(v.item, mbps, if (v.tg) (null to null) else (v.aidx to v.sidx))
             if (vd !== v) return@launchSafe
             if (d.err().isNotEmpty()) { say(d.err()); return@launchSafe }
             v.tok = d.s("tok"); v.mbps = d.d("mbps")
             stallTimes.clear(); stallSince = 0L
-            playUrl(d.s("url"), v.title, "", pos, play)
+            playUrl(d.s("url"), v.title, "", pos, play, d.s("sub_vtt"))
         }
     }
 
@@ -1284,6 +1322,8 @@ object Engine {
 
     // ---------------------------------------------------------------- a TV
     var tvStatus by mutableStateOf<JSONObject?>(null)
+    /** What's playing on the TV (its id), or "". */
+    fun tvItem(): String { val s = tvStatus ?: return ""; return if (s.b("playing")) s.s("item_id") else "" }
 
     suspend fun refreshTv() {
         if (isPhone || dev.isEmpty()) return
