@@ -103,6 +103,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -1047,122 +1048,210 @@ private fun MoreMenu(item: Item, open: Boolean, onClose: () -> Unit, extra: List
     if (dl) DownloadChoices(item) { dl = false }
 }
 
+/** A button as on the web page: white for the main one, dark with a line round it for the rest. */
+@Composable
+fun WebBtn(text: String, main: Boolean = false, label: String? = null, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier.heightIn(min = if (main) 52.dp else 46.dp).clip(RoundedCornerShape(12.dp)).background(if (main) Color.White else EBtn2)
+            .then(if (main) Modifier else Modifier.border(1.dp, ELine, RoundedCornerShape(12.dp)))
+            .clickable(onClick = onClick).semantics { role = Role.Button; if (label != null) contentDescription = label }
+            .padding(horizontal = if (main) 26.dp else 16.dp),
+        contentAlignment = Alignment.Center
+    ) { Text(text, color = if (main) EInk else Color.White, fontSize = if (main) 17.sp else 16.sp, fontWeight = if (main) FontWeight.ExtraBold else FontWeight.SemiBold) }
+}
+
+/** A show's, movie's or episode's page, as on the web page: the name, the picture, the buttons, what it's about, the
+ *  details and the cast; a show has its seasons as buttons with that season's episodes under them. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DetailPage(p: Page, openDrawer: () -> Unit) {
     val (d, err) = rememberData("/api/play/info?id=${enc(p.id)}")
     val info = d?.let { Item(it) }
-    val (seasonEps, _) = rememberData(info?.takeIf { it.type == "Episode" && it.seasonId.isNotEmpty() }?.let { "/api/play/list?kind=episodes&parent=${enc(it.seasonId)}" })
     val ls = W.list(p)
-    val scrolled by remember { derivedStateOf { ls.firstVisibleItemIndex > 0 || ls.firstVisibleItemScrollOffset > 400 } }
-    var more by remember { mutableStateOf(false) }
     var dl by remember { mutableStateOf(false) }
-    val ctx = LocalContext.current
-    Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize(), state = ls, contentPadding = PaddingValues(bottom = 170.dp)) {
+    var castOpen by remember { mutableStateOf(false) }
+    val seasons = info?.j?.optJSONArray("seasons").objs().map { Item(it) }
+    var seasonI by remember(p.id) { mutableIntStateOf(-1) }
+    LaunchedEffect(seasons?.size) {
+        if (seasons != null && seasons.isNotEmpty() && seasonI < 0) {
+            val want = Prefs.str("season_${p.id}")
+            seasonI = seasons.indexOfFirst { it.id == want }.takeIf { it >= 0 } ?: seasons.indexOfFirst { !W.isPlayed(it) }.coerceAtLeast(0)
+        }
+    }
+    val season = seasons?.getOrNull(seasonI)
+    val (eps, eerr) = rememberData(season?.let { "/api/play/list?kind=episodes&parent=${enc(it.id)}" })
+    Column(Modifier.fillMaxSize()) {
+        TopBar(null, openDrawer, heading = false)
+        LazyColumn(Modifier.fillMaxSize(), state = ls, contentPadding = PaddingValues(bottom = 190.dp)) {
             val ep = p.extra == "Episode" || info?.type == "Episode"
-            item { Hero(info, ls) { if (info != null) Logo(info, if (ep) info.seriesName.ifEmpty { info.name } else info.name) } }
+            val head = if (info == null) p.title else if (ep && info.seriesName.isNotEmpty()) "${info.seriesName}, ${info.epTitle()}" else info.name
+            item {
+                Text(head, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 12.dp).semantics { heading() })
+            }
             if (info == null) { item { Loading(err) }; return@LazyColumn }
             val j = info.j
-            if (ep) item {
-                // an episode: like Emby's - its number and name, when it was on, how long, and the video / sound
-                Column(Modifier.padding(horizontal = 16.dp)) {
-                    Text((if (info.se >= 0 && info.ep >= 0) "S${info.se}:E${info.ep} - " else "") + info.name, color = Color.White, fontSize = 24.sp,
-                        fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 10.dp))
-                    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        if (info.aired.isNotEmpty()) Text(info.aired, color = Color.White, fontSize = 17.sp)
-                        if (info.rt.isNotEmpty()) Text(info.rt, color = Color.White, fontSize = 17.sp)
-                        if (info.rating.isNotEmpty()) Text(info.rating, color = Color.White, fontSize = 15.sp,
-                            modifier = Modifier.border(1.dp, Color.White, RoundedCornerShape(3.dp)).padding(horizontal = 5.dp, vertical = 1.dp))
-                    }
-                    if (j.s("video_info").isNotEmpty()) Text(buildLabel("Video", j.s("video_info")), fontSize = 17.sp, modifier = Modifier.padding(top = 12.dp))
-                    if (j.s("audio_info").isNotEmpty()) Text(buildLabel("Audio", j.s("audio_info")), fontSize = 17.sp, modifier = Modifier.padding(top = 8.dp))
-                    if (info.hasAd == false) Text("No audio description", color = Color(0xFFFFB74D), fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
-                }
-            } else item { MetaRow(info) }
-            if (!ep && info.type == "Movie" && (j.s("video_info").isNotEmpty() || j.s("audio_info").isNotEmpty())) item {
-                Row(Modifier.padding(horizontal = 16.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    if (j.s("video_info").isNotEmpty()) Text(buildLabel("Video", j.s("video_info")), fontSize = 16.sp)
-                    if (j.s("audio_info").isNotEmpty()) Text(buildLabel("Audio", j.s("audio_info")), fontSize = 16.sp)
-                }
-            }
+            val playable = ep || info.type == "Movie"
             item {
-                val next = j.optJSONObject("next_up")?.let { Item(it) }
-                val target = if (info.type == "Series") next else info
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    val label = when {
-                        target == null -> "Play"
-                        target.resume.isNotEmpty() -> "Resume"
-                        info.type == "Series" && target.se >= 0 && target.ep >= 0 -> "Play S${target.se}:E${target.ep}"
-                        else -> "Play"
+                val bd = info.backdrop.ifEmpty { j.s("series_backdrop") }
+                Box(Modifier.fillMaxWidth()) {
+                    Box(Modifier.fillMaxWidth().height(220.dp).background(ECard)) {
+                        if (bd.isNotEmpty()) AsyncImage(picUrl(bd, 1920), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.3f to Color(0x000B0D11), 1f to EBg)))
                     }
-                    WhitePill(label, Ic.Play, Modifier.weight(1f).height(56.dp)) {
-                        if (target != null) Engine.start(target, target.resume.isNotEmpty())
-                        else info.j.optJSONArray("seasons").objs().firstOrNull()?.let { W.open(Item(it)) }
-                    }
-                    if (target != null) WhitePill("Play together", null, Modifier.weight(1f).height(56.dp), dark = true, size = 18) {
-                        Engine.start(target, target.resume.isNotEmpty(), together = true)
+                    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 80.dp), verticalAlignment = Alignment.Bottom) {
+                        val pic = if (ep) info.thumb.ifEmpty { info.poster } else info.poster.ifEmpty { info.thumb }
+                        Poster(info, pic, if (ep) 600 else 360, Modifier.width(if (ep) 180.dp else 120.dp).aspectRatio(if (ep) 16f / 9f else 2f / 3f), info.name)
+                        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                            if (ep && info.seriesName.isNotEmpty()) Text(
+                                info.seriesName + (if (info.se >= 0 && info.ep >= 0) " · Season ${info.se}, episode ${info.ep}" else ""),
+                                color = ESub, fontSize = 15.sp, lineHeight = 20.sp)
+                            Text(info.name, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 28.sp)
+                            val meta = listOf(if (info.type == "Series") info.years else info.year,
+                                if (info.type == "Series") j.i("season_count").let { n -> if (n > 0) "$n season" + (if (n == 1) "" else "s") else "" } else info.length,
+                                info.rating, if (info.score.isNotEmpty()) "★ ${info.score}" else "").filter { it.isNotEmpty() }.joinToString(" · ")
+                            if (meta.isNotEmpty()) Text(meta, color = ESub, fontSize = 15.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 4.dp))
+                            if (info.resume.isNotEmpty()) Text((if (info.pct > 0) "${info.pct}% watched · " else "") + "Resumes at ${info.resume}",
+                                color = ESub, fontSize = 15.sp, lineHeight = 20.sp)
+                            if (info.hasAd == false) Text("Without description", color = Color(0xFFFFB74D), fontSize = 15.sp)
+                        }
                     }
                 }
             }
             item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    if (info.type == "Movie" || ep) {
+                FlowRow(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (playable) {
+                        WebBtn(if (info.resume.isNotEmpty()) "Resume from ${info.resume}" else "Play", main = true,
+                            label = (if (info.resume.isNotEmpty()) "Resume " else "Play ") + info.label) { Engine.start(info, info.resume.isNotEmpty()) }
+                        WebBtn("Play together", label = "Play ${info.label} together") { Engine.start(info, info.resume.isNotEmpty(), together = true) }
+                        if (info.resume.isNotEmpty()) WebBtn("Start over", label = "Start ${info.label} from the beginning") { Engine.start(info, false) }
+                    } else {
+                        val next = j.optJSONObject("next_up")?.let { Item(it) }
+                        if (next != null) WebBtn(
+                            (if (next.resume.isNotEmpty()) "Resume " else "Play ") + if (next.se >= 0 && next.ep >= 0) "S${next.se}:E${next.ep}" else next.name,
+                            main = true, label = (if (next.resume.isNotEmpty()) "Resume " else "Play ") + next.label) { Engine.start(next, next.resume.isNotEmpty()) }
+                    }
+                    if (ep && info.seriesId.isNotEmpty()) WebBtn("Go to ${info.seriesName.ifEmpty { "the show" }}") {
+                        W.go(Page("item", info.seriesId, info.seriesName, "Series"))
+                    }
+                    if (!ep) WebBtn(if (info.favorite) "Remove from favorites" else "Add to favorites",
+                        label = (if (info.favorite) "Remove ${info.label} from favorites" else "Add ${info.label} to favorites")) { Engine.toggleFavorite(info) }
+                    if (playable) {
                         val saved = Offline.forItem(info.id)
-                        Action(if (saved.any { it.done }) "Downloaded" else if (saved.isNotEmpty()) "Downloading" else "Download", Ic.Download,
-                            if (saved.any { it.done }) EGreen else Color.White) { if (saved.isNotEmpty()) W.openTab("downloads") else dl = true }
+                        WebBtn(if (saved.any { it.done }) "Downloaded" else if (saved.isNotEmpty()) "Downloading…" else "Download") {
+                            if (saved.isNotEmpty()) W.go(Page("downloads")) else dl = true
+                        }
                     }
                     val pl = W.isPlayed(info)
-                    Action("Played", Ic.Check, if (pl) EGreen else Color.White) { W.markPlayed(info, !pl) }
-                    Action("Favorite", if (info.favorite) Ic.HeartFull else Ic.Heart, if (info.favorite) ERed else Color.White) { Engine.toggleFavorite(info) }
-                    if (j.s("trailer").isNotEmpty()) Action("Trailer", Ic.Movie) {
-                        try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(j.s("trailer")))) }
-                        catch (e: Exception) { Engine.say("Couldn't open the trailer.") }
-                    }
-                    Box {
-                        Action("More", Ic.More) { more = true }
-                        MoreMenu(info, more, { more = false })
-                    }
+                    WebBtn(if (pl) "Mark as not watched" else "Mark as watched") { W.markPlayed(info, !pl) }
+                    if (info.hasAd == false) WebBtn(if (info.requested) "Asked for audio description" else "Ask for audio description") { Engine.askForAd(info) }
+                    WebBtn("Play on…") { castOpen = true }
                 }
             }
             if (j.s("tagline").isNotEmpty()) item {
-                Text(j.s("tagline"), color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp))
+                Text(j.s("tagline"), color = ESub, fontSize = 16.sp, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp))
             }
-            item { Overview(info.overview) }
-            if (j.s("directors").isNotEmpty()) item {
-                Text(buildLabel("Director: ", j.s("directors"), grey = true), fontSize = 16.sp, modifier = Modifier.padding(horizontal = 16.dp))
+            if (info.overview.isNotEmpty()) item {
+                Text(info.overview, color = Color.White, fontSize = 17.sp, lineHeight = 25.sp, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp))
             }
-            val seasons = j.optJSONArray("seasons").objs().map { Item(it) }
-            posterRow("Seasons", seasons, 130.dp)
+            // a show: its seasons as buttons, that season's episodes under them
+            if (!seasons.isNullOrEmpty()) {
+                item {
+                    LazyRow(Modifier.padding(top = 18.dp), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        itemsIndexed(seasons) { i, se ->
+                            Chip(se.name, i == seasonI) { seasonI = i; Prefs.put("season_${p.id}", se.id) }
+                        }
+                    }
+                }
+                val list = eps?.itemList()
+                when {
+                    list == null -> item { Loading(eerr) }
+                    list.isEmpty() -> item { Text("No episodes.", color = ESub, modifier = Modifier.padding(16.dp)) }
+                    else -> items(list, key = { "ep_" + it.id }) { EpRow(it) }
+                }
+            }
+            // the details, as on the web page
+            val facts = listOf("Genres" to info.genres, "Directed by" to j.s("directors"), "Written by" to j.s("writers"),
+                "Length" to (if (info.type == "Series") "" else info.length), "Rated" to info.rating, "Studio" to j.s("studio"),
+                "Picture" to j.s("video_info"), "Sound" to j.s("audio_info")).filter { it.second.isNotEmpty() }
+            if (facts.isNotEmpty()) item {
+                Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 22.dp)) {
+                    Text("Details", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.semantics { heading() })
+                    facts.forEach { (k, v) ->
+                        Column(Modifier.padding(top = 10.dp).semantics(mergeDescendants = true) {}) {
+                            Text(k, color = ESub, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            Text(v, color = Color.White, fontSize = 17.sp)
+                        }
+                    }
+                }
+            }
             val people = j.optJSONArray("people").objs()
             if (people.isNotEmpty()) {
-                item { RowTitle("Cast & Crew") }
+                item { Text("Cast", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.padding(start = 16.dp, top = 24.dp, bottom = 12.dp).semantics { heading() }) }
                 item {
-                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         items(people) { pp ->
-                            Column(Modifier.width(130.dp).semantics(mergeDescendants = true) {}) {
-                                Poster(null, pp.s("image"), 320, Modifier.fillMaxWidth().aspectRatio(2f / 3f), icon = if (pp.s("image").isEmpty()) Ic.Person else null)
-                                Text(pp.s("name"), color = Color.White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                    textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
-                                Text(pp.s("role"), color = ESub, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                    textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                            Column(Modifier.width(96.dp).semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally) {
+                                Box(Modifier.size(84.dp).clip(CircleShape).background(EBtn2), contentAlignment = Alignment.Center) {
+                                    if (pp.s("image").isNotEmpty()) AsyncImage(picUrl(pp.s("image"), 240), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                    else Icon(Ic.Person, null, tint = ESub, modifier = Modifier.size(40.dp))
+                                }
+                                Text(pp.s("name"), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                                    lineHeight = 19.sp, modifier = Modifier.padding(top = 8.dp))
+                                Text(pp.s("role"), color = ESub, fontSize = 14.sp, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
                 }
             }
-            posterRow("More Like This", j.optJSONArray("similar").objs().map { Item(it) }, 130.dp)
-            if (ep && info.seasonId.isNotEmpty()) {
-                val others = seasonEps?.itemList()?.filter { it.id != info.id } ?: emptyList()
-                posterRow(if (info.se >= 0) "More From Season ${info.se}" else "More From This Season", others, 260.dp, wide = true)
-            }
-            if (ep && info.seriesId.isNotEmpty()) item {
-                Text("Go to the show", color = EGreen, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(16.dp).clickable { W.go(Page("item", info.seriesId, info.seriesName, "Series")) })
+        }
+    }
+    if (dl && info != null) DownloadChoices(info) { dl = false }
+    if (castOpen) PlayOnDialog { castOpen = false }
+}
+
+/** A pressed / not pressed button in a row of choices (seasons, filters), as on the web page. */
+@Composable
+fun Chip(text: String, on: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.height(42.dp).clip(RoundedCornerShape(21.dp)).background(if (on) Color.White else EBtn2)
+            .then(if (on) Modifier else Modifier.border(1.dp, ELine, RoundedCornerShape(21.dp)))
+            .clickable(onClick = onClick).semantics { role = Role.Button; selected = on }.padding(horizontal = 18.dp),
+        contentAlignment = Alignment.Center
+    ) { Text(text, color = if (on) EInk else Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+}
+
+/** An episode in a show's list, as on the web page: its picture, name, length and what it's about; then Play, Play
+ *  together and Start over. The picture and words open its page. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EpRow(it: Item) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { W.go(Page("item", it.id, it.name, "Episode")) }
+                .semantics(mergeDescendants = true) { role = Role.Button },
+            verticalAlignment = Alignment.Top
+        ) {
+            Poster(it, it.thumb, 480, Modifier.width(150.dp).aspectRatio(16f / 9f), it.name)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(it.epTitle(), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp)
+                val m = listOf(it.length.ifEmpty { it.rt }, if (it.resume.isNotEmpty()) "resumes at ${it.resume}" else if (W.isPlayed(it)) "watched" else "",
+                    if (it.hasAd == false) "without description" else "").filter { x -> x.isNotEmpty() }.joinToString(" · ")
+                if (m.isNotEmpty()) Text(m, color = ESub, fontSize = 14.sp, modifier = Modifier.padding(top = 2.dp))
+                if (it.overview.isNotEmpty()) Text(it.overview, color = ESub, fontSize = 14.sp, lineHeight = 19.sp, maxLines = 3,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
             }
         }
-
-        TopBar(if (scrolled) p.title else "", openDrawer, solid = scrolled, heading = false)
-        if (dl && info != null) DownloadChoices(info) { dl = false }
+        FlowRow(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            WebBtn(if (it.resume.isNotEmpty()) "Resume" else "Play", label = (if (it.resume.isNotEmpty()) "Resume " else "Play ") + it.label) {
+                Engine.start(it, it.resume.isNotEmpty())
+            }
+            WebBtn("Play together", label = "Play ${it.label} together") { Engine.start(it, it.resume.isNotEmpty(), together = true) }
+            if (it.resume.isNotEmpty()) WebBtn("Start over", label = "Start ${it.label} from the beginning") { Engine.start(it, false) }
+            if (it.hasAd == false) WebBtn(if (it.requested) "Asked for audio description" else "Ask for audio description") { Engine.askForAd(it) }
+        }
     }
 }
 
