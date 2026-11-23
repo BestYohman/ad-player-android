@@ -1,5 +1,6 @@
 package com.bestyohman.adplayer
 
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
@@ -290,7 +291,7 @@ fun WatchApp(act: MainActivity) {
             Box(Modifier.fillMaxSize()) {
                 val page = W.stack.last()
                 key(page) { PageContent(page) {} }
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding()) {
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(if (Look.low) EBg else Color.Transparent).navigationBarsPadding()) {
                     if (W.toast.isNotEmpty()) Toast(W.toast)
                     MiniPlayer()
                     BottomNav()
@@ -378,7 +379,8 @@ private fun LowTools() {
             if (si >= sizes.size - 1) Engine.say("Text size is already the largest.") else Engine.sightSave(mapOf("size" to sizes[si + 1].first), "Text size: ${sizes[si + 1].second.lowercase()}.")
         }
         val n = screens[(sc + 1) % screens.size]
-        WebBtn("Screen: ${screens[sc].second}", modifier = Modifier.weight(1f)) { Engine.sightSave(mapOf("screen" to n.first), "Screen: ${n.second.lowercase()}.") }
+        WebBtn("Screen: ${screens[sc].second.substringBefore(" ")}", label = "Screen: ${screens[sc].second.lowercase()}. Press for ${n.second.lowercase()}.",
+            modifier = Modifier.weight(1f)) { Engine.sightSave(mapOf("screen" to n.first), "Screen: ${n.second.lowercase()}.") }
     }
 }
 
@@ -859,7 +861,9 @@ private fun WebRowTitle(text: String, onAll: (() -> Unit)?) {
         Text(text, color = EFg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 27.sp,
             modifier = Modifier.weight(1f).semantics { heading() })
         if (onAll != null) Text("See all", color = ESub, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.heightIn(min = if (Look.low) 56.dp else 0.dp).clip(RoundedCornerShape(10.dp)).clickable(onClick = onAll).padding(horizontal = 8.dp, vertical = 8.dp)
+            modifier = Modifier.heightIn(min = if (Look.low) 56.dp else 0.dp).clip(RoundedCornerShape(10.dp))
+                .then(if (Look.low) Modifier.border(Look.line, ELine, RoundedCornerShape(10.dp)) else Modifier).clickable(onClick = onAll)
+                .wrapContentHeight(Alignment.CenterVertically).padding(horizontal = if (Look.low) 12.dp else 8.dp, vertical = 8.dp)
                 .semantics { contentDescription = "See all: $text"; role = Role.Button })
     }
 }
@@ -1248,7 +1252,7 @@ fun WebBtn(text: String, main: Boolean = false, label: String? = null, modifier:
             .clickable(onClick = onClick).semantics { role = Role.Button; if (label != null) contentDescription = label }
             .padding(horizontal = if (main) 26.dp else 16.dp),
         contentAlignment = Alignment.Center
-    ) { Text(text, color = if (main) EInk else EFg, fontSize = if (main) 17.sp else 16.sp, fontWeight = if (main) FontWeight.ExtraBold else if (Look.low) FontWeight.Bold else FontWeight.SemiBold) }
+    ) { Text(text, color = if (main) EInk else EFg, fontSize = if (main) 17.sp else 16.sp, maxLines = if (Look.low) 2 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis, fontWeight = if (main) FontWeight.ExtraBold else if (Look.low) FontWeight.Bold else FontWeight.SemiBold) }
 }
 
 /** A show's, movie's or episode's page, as on the web page: the name, the picture, the buttons, what it's about, the
