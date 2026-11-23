@@ -71,9 +71,10 @@ adb shell input keyevent 4
 shot 11_back_with_mini 3
 open "kind=home"
 sleep 2
-tapon Menu
-shot 12_drawer 3
-adb shell input keyevent 4
+tapon Shows
+shot 12_shows 6
+tapon You
+shot 12b_you 3
 open "kind=search"
 sleep 2
 tapon EditText
