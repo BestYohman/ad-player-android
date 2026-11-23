@@ -144,6 +144,9 @@ fun PlayerScreen(act: MainActivity) {
                 PlayerView(ctx).apply {
                     player = PlayerHolder.session
                     useController = false
+                    // the remote's keys go to the app's own buttons, not to the picture
+                    isFocusable = false; isFocusableInTouchMode = false
+                    descendantFocusability = android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
                     keepScreenOn = true
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     setShutterBackgroundColor(android.graphics.Color.BLACK)
