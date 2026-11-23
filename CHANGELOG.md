@@ -2,6 +2,15 @@
 
 Each version below is a release on GitHub (Releases, "v1.8.0" and so on). The newest is also "AD Player (latest)".
 
+## 1.13.0 - 2026-11-23
+- **Google TV and Android TV:** AD Player is on the TV's home screen. A menu down the side (Home, Search, Shows, Movies, Books, You), a white outline on whatever the remote is on, and the remote in the player: OK plays and pauses, left goes back 10 seconds, right ahead 30, up shows the buttons.
+- **Your TV, on your phone:** while the TV plays something signed in as you, your phone shows "Your TV is playing ... - Join". Join plays it on the phone in step with the TV, which carries on for everyone (to step away and keep watching or listening). Needs the PC's app 2.45.0.
+- **Continue on a phone** (on the TV): playing together starts without stopping the TV, and it's sent to your phone or anyone else who can sign in.
+- **Play together:** choose who to invite (people who can sign in to the player). They see the invitation with Join and Not now, and a notification when the app is in the background. While playing together, a line says what's going on (waiting for someone to load, who paused, who lost connection), with what each person's phone is doing and what happened lately.
+- **Stats for nerds:** a button in the video player shows how it's played - the picture's size, dropped frames, the connection, how much is loaded ahead, and from the PC whether the video and sound are copied or remade, and why.
+- **Play on:** the TVs used last come first. Chromecast / Google TV and Apple TV (AirPlay) are listed (an Apple TV that asks is paired once with the code it shows). Needs the PC's app 2.44.0.
+- Posters without the AD mark have no audio description (no "No AD" label any more).
+
 ## 1.12.0 - 2026-11-23
 - **Looks like the web page:** the same home with the big picture at the top, rows of posters, and Home, Shows, Movies, Books and You along the bottom. Show, movie and book pages, the library pages with Sort and filter, and You (settings) are laid out like the web page too.
 - **How you see the screen**, as on the web page: the first sign-in asks once, and it can be changed any time under You. It's kept on the PC, so it's the same everywhere you sign in (needs the PC's app 2.31.0).
