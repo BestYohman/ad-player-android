@@ -193,6 +193,7 @@ fun AudioScreen(act: MainActivity) {
             if (book && ci >= 0) Text("${clock(total - pos)} left in the book" + (if (b!!.sleep != "off") " · sleep timer on" else ""),
                 color = ESub, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
             PlayStateLine(paused, Modifier.padding(top = 2.dp), color = ESub, size = 13.sp)
+            if (Engine.tg != null) TogetherBox(EFg, ESub, ELine, Modifier.fillMaxWidth().padding(top = 8.dp))
             Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 Small(Ic.Prev, if (book) "Previous chapter" else "Previous", enabled = book) { Engine.cmd("prev") }
                 Small(Ic.Replay, "Back 30 seconds") { Engine.cmd("back30") }

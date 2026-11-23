@@ -247,6 +247,7 @@ fun MainScreen(act: MainActivity) {
     val playing by remember { derivedStateOf { Engine.status().playing } }
     val fs = Engine.fullscreen && Engine.vd != null
     LaunchedEffect(fs) { act.setFullscreen(fs) }
+    InviteDialog(); PairDialog()
     BackHandler(enabled = fs || Engine.stack.size > 1 || (Engine.browse && playing)) {
         when {
             fs -> Engine.fullscreen = false
@@ -306,11 +307,11 @@ fun Invites() {
         Column(Modifier.padding(14.dp)) {
             Heading("Play together")
             Engine.invites.forEach { r ->
-                val w = (if (r.s("kind") == "book") "listen to " else "play ") + r.s("title")
-                Text("${r.s("by")} wants to $w together.", Modifier.padding(vertical = 4.dp))
+                Text(Engine.inviteLine(r), Modifier.padding(vertical = 4.dp))
                 Button(onClick = { Engine.tgJoin(r.s("id")) }, modifier = Modifier.fillMaxWidth()) {
                     Text("Join ${r.s("by")}: ${r.s("title")}")
                 }
+                OutlinedButton(onClick = { Engine.inviteNo(r) }, modifier = Modifier.fillMaxWidth()) { Text("Not now") }
             }
         }
     }
@@ -521,6 +522,8 @@ fun NowPlaying() {
         PlayStateLine(st.paused, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (st.video && Engine.vd != null) VideoView(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)))
         Text(st.text, Modifier.padding(vertical = 8.dp))
+        if (Engine.tg != null) TogetherBox(MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.onSurfaceVariant,
+            MaterialTheme.colorScheme.outline, Modifier.padding(bottom = 8.dp))
         val b = mutableListOf<Triple<String, Boolean, () -> Unit>>()
         b.add(Triple(if (st.paused) "Play" else "Pause", true, { Engine.cmd("playpause") }))
         b.add(Triple(if (Engine.tg != null) "Stop for everyone" else "Stop", false, { Engine.stopPressed() }))

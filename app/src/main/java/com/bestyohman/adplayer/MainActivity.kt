@@ -85,6 +85,10 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         // a "play together" notification (adplayer://join): show the Join button straight away
         if (intent.data?.scheme == "adplayer" && intent.data?.host != "open") Engine.scope.launch { try { Engine.pollInvites() } catch (e: Exception) { } }
+        // the notification's Join button
+        if (intent.data?.scheme == "adplayer" && intent.data?.host == "join") intent.data?.getQueryParameter("room")?.let { r ->
+            if (r.isNotEmpty() && Engine.screen == "main") { TogetherNote.cancel(r); Engine.tgJoin(r) }
+        }
         openLink(intent)
         voiceSearch(intent)
     }

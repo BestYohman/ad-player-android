@@ -159,10 +159,12 @@ object Engine {
         if (!started) {
             started = true
             scope.launch {
+                var n = 0
                 while (true) {
-                    delay(5000)
+                    delay(5000); n++
                     try {
                         if (foreground && screen == "main") { pollInvites(); if (!isPhone && dev.isNotEmpty()) refreshTv() }
+                        else if (!foreground && screen == "main" && tg == null && n % 6 == 0) pollInvites()
                     } catch (e: ApiError) {
                         if (e.login) signedOut(e.message ?: "")
                     } catch (e: CancellationException) {
@@ -242,7 +244,8 @@ object Engine {
     }
 
     // ---------------------------------------------------------------- where it plays
-    data class Dev(val id: String, val name: String)
+    data class Dev(val id: String, val name: String, val pair: Boolean = false, val last: Long = 0)
+    var pairAsk by mutableStateOf<Dev?>(null)        // an Apple TV showing its code: type it in
     var devices by mutableStateOf(listOf<Dev>())
     var devHelp by mutableStateOf("")
     var dev by mutableStateOf(Prefs.dev)
@@ -258,7 +261,8 @@ object Engine {
             val d = Api.get("/api/play/devices")
             if (d.err().isNotEmpty()) devHelp = d.err()
             tvs = d.optJSONArray("devices").objs().map {
-                Dev(it.s("id"), it.s("name") + (if (it.s("playing").isNotEmpty()) " (playing ${it.s("playing")})" else ""))
+                Dev(it.s("id"), it.s("name") + (if (it.s("playing").isNotEmpty()) " (playing ${it.s("playing")})" else "") +
+                    (if (it.b("pair")) " - pair it first" else ""), it.b("pair"), it.optLong("last", 0) * 1000)
             }
             val o = d.optJSONArray("other").strs()
             if (o.isNotEmpty()) other = " Connected but can't be controlled from here: ${o.joinToString(", ")}."
@@ -266,7 +270,9 @@ object Engine {
             if (e.login) throw e
             devHelp = e.message ?: ""
         }
-        devices = tvs + phones
+        val used = usedDevs()
+        devices = (tvs + phones).withIndex().sortedWith(compareByDescending<IndexedValue<Dev>> { maxOf(it.value.last, used.optLong(it.value.id, 0)) }
+            .thenBy { it.index }).map { it.value }          // the ones used last come first
         val want = dev.ifEmpty { Prefs.dev }
         dev = when {
             devices.any { it.id == want } -> want
@@ -282,7 +288,31 @@ object Engine {
 
     fun refreshDevices() = launchSafe { loadDevices(true) }
 
+    /** An Apple TV is paired with the PC once: the TV shows a code, she types it in. */
+    fun pairStart(d: Dev) = launchSafe {
+        say("Asking ${d.name.substringBefore(" - pair")} for a code…")
+        val r = Api.post("/api/play/pair", mapOf("device" to d.id))
+        if (r.err().isNotEmpty()) { say(r.err()); return@launchSafe }
+        say(r.s("message")); pairAsk = d
+    }
+
+    fun pairFinish(pin: String) {
+        val d = pairAsk ?: return
+        pairAsk = null
+        launchSafe {
+            val r = Api.post("/api/play/pair", mapOf("device" to d.id, "pin" to pin))
+            say(r.err().ifEmpty { r.s("message") })
+            loadDevices(false)
+            if (r.err().isEmpty()) devices.firstOrNull { it.id == d.id && !it.pair }?.let { pickDevice(it.id) }
+        }
+    }
+
+    private fun usedDevs(): JSONObject = try { JSONObject(Prefs.str("dev_used", "{}")) } catch (e: Exception) { JSONObject() }
+
     fun pickDevice(id: String) {
+        val d = devices.firstOrNull { it.id == id }
+        if (d?.pair == true) { pairStart(d); return }
+        try { Prefs.put("dev_used", usedDevs().put(id, System.currentTimeMillis()).toString()) } catch (e: Exception) { }
         if (isPhone && id != dev) {
             if (tg != null) tgLeave(true)
             stopPhone(true)
@@ -1512,10 +1542,11 @@ object Engine {
         launchSafe {
             val pos = if (resume) it.resumeTicks / 1e7 else 0.0
             val d = Api.post("/api/play/together/start", mapOf("cid" to Prefs.cid, "kind" to "video", "item" to it.id,
-                "pos" to pos.toString(), "mode" to tgMode(), "title" to it.label))
+                "pos" to pos.toString(), "mode" to tgMode(), "title" to it.label, "invite" to ""))
             if (d.err().isNotEmpty()) { say(d.err()); return@launchSafe }
             tgBegin(d)
-            say("Ready to play ${d.s("title")} together. When the other person presses Join it starts by itself - or press Play to start now.")
+            say("Ready to play ${d.s("title")} together. Choose who to invite. When they join it starts by itself - or press Play to start now.")
+            inviteOpen(first = true)
         }
     }
 
@@ -1529,10 +1560,11 @@ object Engine {
             var pos = at ?: if (resume && !b.b("finished")) max(0.0, b.d("position") - 2) else 0.0
             if (pos >= b.d("duration") - 2) pos = 0.0
             val d = Api.post("/api/play/together/start", mapOf("cid" to Prefs.cid, "kind" to "book", "item" to id,
-                "pos" to pos.toString(), "mode" to "audio", "title" to b.s("title")))
+                "pos" to pos.toString(), "mode" to "audio", "title" to b.s("title"), "invite" to ""))
             if (d.err().isNotEmpty()) { say(d.err()); return@launchSafe }
             tgBegin(d)
-            say("Ready to listen to ${d.s("title")} together. When the other person presses Join it starts by itself - or press Play to start now.")
+            say("Ready to listen to ${d.s("title")} together. Choose who to invite. When they join it starts by itself - or press Play to start now.")
+            inviteOpen(first = true)
         }
     }
 
@@ -1553,12 +1585,34 @@ object Engine {
         }
     }
 
+    var inviting by mutableStateOf<List<JSONObject>?>(null)     // the people she can invite (the picker is open)
+
+    /** Only people who can sign in to the player; the ones already playing or invited aren't offered again. */
+    fun inviteOpen(first: Boolean = false) = launchSafe {
+        val t = tg ?: return@launchSafe
+        val ppl = Api.get("/api/play/people").optJSONArray("people").objs()
+        val have = t.last.optJSONArray("people").objs().map { it.s("name") }.toSet()
+        val avail = ppl.filter { it.s("name") !in have }
+        if (avail.isEmpty()) { if (!first) say(if (ppl.isEmpty()) "Nobody else can sign in to the player." else "Everyone is already invited or playing."); return@launchSafe }
+        if (tg === t) inviting = avail
+    }
+
+    fun inviteSend(names: List<String>) {
+        inviting = null
+        val t = tg ?: return
+        if (names.isEmpty()) return
+        launchSafe {
+            val d = Api.post("/api/play/together/invite", mapOf("cid" to Prefs.cid, "room" to t.room, "names" to names.joinToString(",")))
+            say(d.err().ifEmpty { d.s("message") })
+        }
+    }
+
     private fun tgBegin(d: JSONObject) {
         val t = Tg(d.s("id"))
         t.kind = d.s("kind"); t.role = d.s("role"); t.msgSeq = d.i("msg_seq"); t.last = d; t.jseq = d.i("jseq")
         skips = 0; stalls = 0
         tg = t
-        invites = emptyList()
+        invites = emptyList(); TogetherNote.cancelAll()
         browse = false
         tgApply(d)
         tgJob?.cancel()
@@ -1868,7 +1922,7 @@ object Engine {
 
     private fun tgEnd(msg: String?) {
         tgJob?.cancel()
-        tg = null
+        tg = null; inviting = null
         stopPhone(true)
         if (msg != null) say(msg)
         scope.launch { pollInvites() }
@@ -1892,7 +1946,7 @@ object Engine {
             d.optJSONArray("hold").strs().isNotEmpty() -> "Waiting a moment for ${d.optJSONArray("hold").strs().joinToString(" and ")} to catch up."
             d.b("want") -> "Playing."
             else -> "Paused."
-        }
+        }.let { if (ready && d.s("status").isNotEmpty()) d.s("status") else it }
         val pos = if (ready) mTime() else d.d("pos")
         val ch = if (t.kind == "book" && bk?.ready == true && bk?.chapters?.isNotEmpty() == true) chapterAt(pos) else -1
         var text = (if (others.isNotEmpty()) "Together with $names" else "Playing together") + ": ${d.s("title")}. $state ${fmtTime(pos)}" +
@@ -1910,17 +1964,32 @@ object Engine {
             video = t.role == "video" && t.kind != "book")
     }
 
+    private val invNo = mutableSetOf<String>()
+    fun inviteLine(r: JSONObject): String {
+        val w = (if (r.s("kind") == "book") "listen to " else "watch ") + r.s("title")
+        val others = r.optJSONArray("names").strs().filter { it != r.s("by") }
+        return (if (r.b("invited")) "${r.s("invited_by").ifEmpty { r.s("by") }} invites you to $w together"
+                else "${r.s("by")} is playing ${r.s("title")} together") + (if (others.isNotEmpty()) " (with ${others.joinToString(", ")})." else ".")
+    }
+
+    fun inviteNo(r: JSONObject) {
+        invNo.add(r.s("id")); invites = invites.filter { it.s("id") != r.s("id") }
+        TogetherNote.cancel(r.s("id"))
+        if (r.b("invited")) launchSafe { Api.post("/api/play/together/decline", mapOf("room" to r.s("id"))) }
+        say("Okay.")
+    }
+
     suspend fun pollInvites() {
         if (tg != null || me == null) { invites = emptyList(); return }
         try {
             val d = Api.get("/api/play/together/list?cid=${enc(Prefs.cid)}")
             if (tg != null) return
-            val rs = d.optJSONArray("rooms").objs()
+            val rs = d.optJSONArray("rooms").objs().filter { it.s("id") !in invNo }
             invites = rs
             for (r in rs) {
                 if (seenInvites.add(r.s("id"))) {
-                    val w = (if (r.s("kind") == "book") "listen to " else "play ") + r.s("title")
-                    say("${r.s("by")} wants to $w together. The Join button is at the top.")
+                    if (foreground) say(inviteLine(r) + " The Join button is at the top.")
+                    else if (r.b("invited")) TogetherNote.show(r.s("id"), inviteLine(r))
                 }
             }
         } catch (e: ApiError) {

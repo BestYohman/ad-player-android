@@ -72,6 +72,7 @@ object PlayerHolder {
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
         exo.addListener(Engine.playerListener)
+        exo.addAnalyticsListener(NetStats)            // for Stats for nerds
         session = SessionPlayer(exo)
     }
 }

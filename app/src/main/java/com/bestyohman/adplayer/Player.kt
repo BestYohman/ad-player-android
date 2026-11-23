@@ -94,6 +94,7 @@ fun PlayerScreen(act: MainActivity) {
     var dialog by remember { mutableStateOf("") }
     @Suppress("UNUSED_VARIABLE") val t = Engine.tick
     val exo = PlayerHolder.exo
+    var stats by remember { mutableStateOf(false) }
     val playing = exo.playWhenReady
     // with TalkBack on, the controls stay (there is nothing to tap to bring them back without seeing them)
     val am = androidx.compose.ui.platform.LocalContext.current.getSystemService(android.view.accessibility.AccessibilityManager::class.java)
@@ -129,8 +130,9 @@ fun PlayerScreen(act: MainActivity) {
         if (!Engine.mediaReady || exo.playbackState == androidx.media3.common.Player.STATE_BUFFERING)
             CircularProgressIndicator(color = Color.White, modifier = Modifier.align(Alignment.Center).size(56.dp))
         AnimatedVisibility(shown && !locked, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
-            Controls(v, info, act, touch, { sheet = it }, { dialog = it }, { locked = true; shown = true })
+            Controls(v, info, act, touch, { sheet = it }, { dialog = it }, { locked = true; shown = true }, { stats = !stats; Engine.say(if (stats) "Stats for nerds on." else "Stats off.") })
         }
+        if (stats) StatsOverlay({ stats = false }, Modifier.align(Alignment.TopStart).statusBarsPadding().padding(start = 8.dp, top = 76.dp, end = 8.dp))
         if (locked && shown) {
             Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 IconButton(onClick = { locked = false; touch() }, modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0x99000000))) {
@@ -168,7 +170,7 @@ fun PlayerScreen(act: MainActivity) {
 @kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () -> Unit, openSheet: (String) -> Unit,
-                     openDialog: (String) -> Unit, lock: () -> Unit) {
+                     openDialog: (String) -> Unit, lock: () -> Unit, stats: () -> Unit) {
     val exo = PlayerHolder.exo
     @Suppress("UNUSED_VARIABLE") val t = Engine.tick
     val dur = (if (v.runtime > 0) v.runtime else max(0.0, exo.duration / 1000.0)).coerceAtLeast(1.0)
@@ -179,7 +181,7 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
     val ep = info?.type == "Episode"
     val conf = androidx.compose.ui.platform.LocalConfiguration.current
     val land = conf.screenWidthDp > conf.screenHeightDp            // sideways: a lower, wider layout
-    if (!land) { WebControls(v, info, act, touch, openSheet, openDialog, lock); return }
+    if (!land) { WebControls(v, info, act, touch, openSheet, openDialog, lock, stats); return }
     Box(
         Modifier.fillMaxSize().background(
             Brush.verticalGradient(0f to Color(0xB0000000), 0.25f to Color(0x30000000), 0.55f to Color(0x30000000), 1f to Color(0xD0000000))
@@ -228,7 +230,7 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
             Text(title, color = Color.White, fontSize = if (land) 24.sp else 30.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (Engine.tg != null) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
                 Icon(Ic.Group, null, tint = EGreen, modifier = Modifier.size(18.dp))
-                Text(" Playing together", color = EGreen, fontSize = 14.sp)
+                Text(" " + Engine.tg!!.last.s("status").ifEmpty { "Playing together" }, color = EGreen, fontSize = 14.sp)
             }
             PlayStateLine(!exo.playWhenReady, color = Color(0xFFBDBDBD), size = 14.sp)
             Slider(
@@ -261,6 +263,8 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
                 Btn(Ic.Speed, "Speed") { if (Engine.tg != null) Engine.say("The speed stays the same while playing together.") else openDialog("speed") }
                 Btn(Ic.Settings, "Settings") { openDialog("settings") }
                 Btn(Ic.Rotate, "Turn sideways") { act.toggleLandscape(); touch() }
+                Btn(Ic.Chart, "Stats for nerds") { stats(); touch() }
+                if (Engine.tg != null) Btn(Ic.Group, "Invite people") { Engine.inviteOpen(); touch() }
                 if (land) { Spacer(Modifier.weight(1f)); Tabs(info, ep, openSheet) }
             }
             if (!land) Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(26.dp)) {
@@ -275,7 +279,7 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
 @kotlin.OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun WebControls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () -> Unit, openSheet: (String) -> Unit,
-                        openDialog: (String) -> Unit, lock: () -> Unit) {
+                        openDialog: (String) -> Unit, lock: () -> Unit, stats: () -> Unit) {
     val exo = PlayerHolder.exo
     @Suppress("UNUSED_VARIABLE") val t = Engine.tick
     val dur = (if (v.runtime > 0) v.runtime else max(0.0, exo.duration / 1000.0)).coerceAtLeast(1.0)
@@ -298,6 +302,9 @@ private fun WebControls(v: Engine.Vid, info: Item?, act: MainActivity, touch: ()
             }
             GlassButton(Ic.Cast, "Play on", wide = true) { openDialog("cast") }
         }
+        if (Engine.tg != null) TogetherBox(Color.White, Color(0xFFC9CED6), Color(0x66FFFFFF),
+            Modifier.fillMaxWidth().padding(top = 96.dp, start = 12.dp, end = 12.dp).statusBarsPadding()
+                .clip(RoundedCornerShape(12.dp)).background(Color(0x99000000)).padding(horizontal = 12.dp, vertical = 8.dp))
         Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(36.dp)) {
             GlassRound(Ic.Replay, if (local) "Back 10 seconds" else "Back 30 seconds", 60.dp) { Engine.cmd(if (local) "back10" else "back30"); touch() }
             val paused = !exo.playWhenReady
@@ -334,6 +341,8 @@ private fun WebControls(v: Engine.Vid, info: Item?, act: MainActivity, touch: ()
                 NamedBtn(Ic.Speed, "Speed") { if (Engine.tg != null) Engine.say("The speed stays the same while playing together.") else openDialog("speed") }
                 NamedBtn(Ic.Settings, "Settings") { openDialog("settings") }
                 NamedBtn(Ic.Info, "Info") { openSheet("info") }
+                NamedBtn(Ic.Chart, "Stats for nerds") { stats(); touch() }
+                if (Engine.tg != null) NamedBtn(Ic.Group, "Invite people") { Engine.inviteOpen(); touch() }
                 if (info?.j?.optJSONArray("chapters").objs().isNotEmpty()) NamedBtn(Ic.ListIc, "Chapters") { openSheet("chapters") }
                 if (ep) NamedBtn(Ic.Next, "Up next") { openSheet("next") }
             }

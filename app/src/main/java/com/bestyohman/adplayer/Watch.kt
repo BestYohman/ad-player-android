@@ -279,6 +279,7 @@ fun WatchApp(act: MainActivity) {
         androidx.compose.runtime.CompositionLocalProvider(
             androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(dn.density * Look.zoom, dn.fontScale * Look.textScale / Look.zoom)
         ) {
+        InviteDialog(); PairDialog()
         if (showPlayer && video) {
             val z = minOf(Look.zoom, 1.08f); val t = minOf(Look.textScale, 1.4f)
             androidx.compose.runtime.CompositionLocalProvider(
@@ -679,10 +680,6 @@ fun Poster(item: Item?, src: String, w: Int, modifier: Modifier, fallback: Strin
                 item.unplayed > 0 -> Badge(Modifier.align(Alignment.TopEnd)) { Text("${item.unplayed}", color = EInk, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
             }
             if (item.hasAd == true && item.type != "Book") AdMark(Modifier.align(Alignment.TopStart).padding(8.dp))
-            if (item.hasAd == false) Text(
-                "No AD", color = Color.White, fontSize = 11.sp,
-                modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Color(0xC0000000), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp)
-            )
             if (item.pct in 1..99 && !played) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Color(0x66000000))) {
                 Box(Modifier.fillMaxHeight().fillMaxWidth(item.pct / 100f).background(EGreen))
             }
@@ -796,15 +793,19 @@ fun UpdateCard() {
 private fun InviteCards() {
     if (Engine.invites.isEmpty() || Engine.tg != null) return
     Engine.invites.forEach { r ->
-        val w = (if (r.s("kind") == "book") "listen to " else "watch ") + r.s("title")
-        Row(
+        Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(12.dp)).background(if (Look.low) EBtn2 else Color(0xFF1E3A1D))
-                .then(if (Look.low) Modifier.border(Look.line, ELine, RoundedCornerShape(12.dp)) else Modifier).padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .then(if (Look.low) Modifier.border(Look.line, ELine, RoundedCornerShape(12.dp)) else Modifier).padding(12.dp)
         ) {
-            Icon(Ic.Group, null, tint = EGreen)
-            Text("${r.s("by")} wants to $w together.", color = EFg, modifier = Modifier.weight(1f).padding(horizontal = 10.dp))
-            WhitePill("Join", Ic.Play, Modifier.width(100.dp).height(42.dp)) { Engine.tgJoin(r.s("id")) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Ic.Group, null, tint = EGreen)
+                Text(Engine.inviteLine(r), color = EFg, fontWeight = if (r.b("invited")) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier.weight(1f).padding(horizontal = 10.dp))
+            }
+            Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                WhitePill("Join", Ic.Play, Modifier.weight(1f).height(44.dp)) { Engine.tgJoin(r.s("id")) }
+                WhitePill("Not now", null, Modifier.weight(1f).height(44.dp), dark = true) { Engine.inviteNo(r) }
+            }
         }
     }
 }
@@ -1314,7 +1315,6 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                             info.rating, if (info.score.isNotEmpty()) "★ ${info.score}" else "").filter { it.isNotEmpty() }.joinToString(" · ")
                         if (meta.isNotEmpty()) Text(meta, color = EFg, fontSize = 15.sp)
                         if (info.resume.isNotEmpty()) Text((if (info.pct > 0) "${info.pct}% watched · " else "") + "Resumes at ${info.resume}", color = EFg, fontSize = 15.sp)
-                        if (info.hasAd == false) Text("Without description", color = EWarn, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             } else item {
@@ -1338,7 +1338,6 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                             if (meta.isNotEmpty()) Text(meta, color = ESub, fontSize = 15.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 4.dp))
                             if (info.resume.isNotEmpty()) Text((if (info.pct > 0) "${info.pct}% watched · " else "") + "Resumes at ${info.resume}",
                                 color = ESub, fontSize = 15.sp, lineHeight = 20.sp)
-                            if (info.hasAd == false) Text("Without description", color = EWarn, fontSize = 15.sp)
                         }
                     }
                 }
