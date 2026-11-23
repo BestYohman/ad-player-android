@@ -1335,6 +1335,7 @@ object Engine {
     private fun everySecond() {
         tick++
         watchStalls()
+        if (isTv && tick % 5 == 0) tvHere()
         if (tick % 2 == 0 && Offline.items.any { it.state == "downloading" }) Offline.poll()
         if (mode != Mode.NONE && exo.isPlaying && System.currentTimeMillis() - lastSave > 30_000) savePlace()
         val b = bk
@@ -1614,6 +1615,28 @@ object Engine {
         launchSafe {
             val d = Api.post("/api/play/together/invite", mapOf("cid" to Prefs.cid, "room" to t.room, "names" to names.joinToString(",")))
             say(d.err().ifEmpty { d.s("message") })
+        }
+    }
+
+    /** A TV says what it plays (every 5 s): your own phone shows "Your TV is playing ... - Join". When someone joins,
+     *  the PC says so here and the TV carries on, playing together now. */
+    private var hereSent = false
+    private fun tvHere() {
+        val v = vd
+        val on = v != null && tg == null && isPhone && mode == Mode.VIDEO && mediaReady && screen == "main"
+        if (!on && !hereSent) return
+        scope.launch {
+            try {
+                val d = if (on) Api.post("/api/play/together/here", mapOf("cid" to Prefs.cid, "item" to v!!.item, "title" to v.title,
+                        "pos" to (exo.currentPosition / 1000.0).toString(), "playing" to if (exo.playWhenReady) "1" else "0", "dev" to devName))
+                    else Api.post("/api/play/together/here", mapOf("cid" to Prefs.cid, "stop" to "1"))
+                hereSent = on
+                val r = d.optJSONObject("room")
+                if (r != null && tg == null && vd === v) {
+                    tgBegin(r, adopt = true)
+                    say(r.s("status").ifEmpty { "Playing together now." })
+                }
+            } catch (e: Exception) { }
         }
     }
 
@@ -1996,6 +2019,7 @@ object Engine {
     fun inviteLine(r: JSONObject): String {
         val w = (if (r.s("kind") == "book") "listen to " else "watch ") + r.s("title")
         val others = r.optJSONArray("names").strs().filter { it != r.s("by") }
+        if (r.b("tv")) return "Your ${r.s("dev").ifEmpty { "TV" }} is playing ${r.s("title")}. Join to carry on here, in step with it."
         if (r.b("self")) return "Take ${r.s("title")} with you: Join plays it here, in step with the TV."
         return (if (r.b("invited")) "${r.s("invited_by").ifEmpty { r.s("by") }} invites you to $w together"
                 else "${r.s("by")} is playing ${r.s("title")} together") + (if (others.isNotEmpty()) " (with ${others.joinToString(", ")})." else ".")
