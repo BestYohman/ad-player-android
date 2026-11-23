@@ -2,6 +2,10 @@
 
 Each version below is a release on GitHub (Releases, "v1.8.0" and so on). The newest is also "AD Player (latest)".
 
+## 1.14.0 - 2026-11-23
+- **Settings** (with a gear) instead of You, in the tabs at the bottom and in the TV's side menu.
+- **A movie's, show's or episode's page:** just the big picture at the top (no cover on the left), fading to black so the words on it are easy to read. An episode's picture is the one from that episode, and its show and its season and episode are bold, like its name, with no title line above.
+
 ## 1.13.0 - 2026-11-23
 - **Google TV and Android TV:** AD Player is on the TV's home screen. A menu down the side (Home, Search, Shows, Movies, Books, You), a white outline on whatever the remote is on, and the remote in the player: OK plays and pauses, left goes back 10 seconds, right ahead 30, up shows the buttons.
 - **Your TV, on your phone:** while the TV plays something signed in as you, your phone shows "Your TV is playing ... - Join". Join plays it on the phone in step with the TV, which carries on for everyone (to step away and keep watching or listening). Needs the PC's app 2.45.0.
