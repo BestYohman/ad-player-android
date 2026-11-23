@@ -443,12 +443,6 @@ private fun MiniBtn(icon: ImageVector, label: String, onClick: () -> Unit) {
     ) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(26.dp)) }
 }
 
-/** 0:03, 12:40, 1:02:05 */
-fun clock(sec: Double): String {
-    val t = sec.toLong().coerceAtLeast(0); val h = t / 3600; val m = (t % 3600) / 60; val ss = t % 60
-    return if (h > 0) "%d:%02d:%02d".format(h, m, ss) else "%d:%02d".format(m, ss)
-}
-
 // ------------------------------------------------------------------------------------------- the drawer
 @Composable
 private fun Drawer(close: () -> Unit) {
