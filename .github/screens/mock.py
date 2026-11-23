@@ -1,3 +1,4 @@
+import time
 # A stand-in for the PC (test data only), so GitHub can run the app on an emulator and take screenshots.
 import json, os, re, http.server, socketserver, urllib.parse
 
@@ -72,6 +73,7 @@ def info(i):
     return {"error": "Not found"}
 
 DL = {}
+MOCK = {"invite": False}
 SIGHT = {"sight": "full", "sight_chosen": False,
          "sight_opts": {"size": "large", "screen": "dark", "video": True, "focus": True, "still": True, "posters": True}}
 
@@ -98,7 +100,29 @@ def route(path, q):
             else: SIGHT["sight_opts"][k] = v == "1"
         return dict(SIGHT)
     if path == "/api/play/devices": return {"devices": [], "other": []}
-    if path == "/api/play/together/list": return {"rooms": []}
+    if path == "/mock/invite": MOCK["invite"] = True; return {"ok": True}
+    if path == "/api/play/together/list":
+        return {"rooms": [{"id": "r9", "title": "Moonlit Magic 2 (2026)", "by": "Ann", "kind": "video", "item": "m_magic", "names": ["Ann", "Bob"],
+                           "invited": True, "invited_by": "Ann", "invited_ago": 4}] if MOCK["invite"] else []}
+    if path == "/api/play/people": return {"people": [{"name": "Ann", "online": True, "notify": True}, {"name": "Bob", "online": False, "notify": False}]}
+    if path in ("/api/play/together/start", "/api/play/together/join", "/api/play/together/beat", "/api/play/together/control"):
+        if path == "/api/play/together/start": MOCK["room_t"] = time.time()
+        waiting = time.time() - MOCK.get("room_t", 0) < 25
+        return {"id": "r1", "kind": "video", "item": q.get("item") or "m_magic", "title": "Moonlit Magic 2 (2026)", "iseq": 1, "seq": 1, "run": not waiting,
+                "want": True, "waiting": waiting, "hold": [], "pos": 5.0 + max(0, time.time() - MOCK.get("room_t", 0) - 25), "jseq": 0, "rate": 1, "runtime": 7800,
+                "has_next": False, "by": "Yoh", "role": "video", "msg": "", "msg_by": "", "msg_seq": 1,
+                "members": [], "others": ["Ann"], "not_ready": ["Ann"] if waiting else [], "away": [],
+                "status": "Waiting for Ann to load." if waiting else "Playing with Ann.", "paused_by": "",
+                "people": [{"name": "Yoh", "me": True, "state": "ready", "state_text": "ready"},
+                           {"name": "Ann", "state": "loading" if waiting else "playing", "state_text": "loading the video" if waiting else "playing"},
+                           {"name": "Bob", "state": "invited", "state_text": "invited"}],
+                "events": [{"ago": 20, "text": "Yoh started playing together."}, {"ago": 15, "text": "Yoh invited Ann and Bob."}, {"ago": 4, "text": "Ann joined."}]}
+    if path == "/api/play/together/invite": return {"message": "Invited " + q.get("names", "") + "."}
+    if path == "/api/play/video/stats":
+        return {"item": "m_magic", "max_mbps": 6, "bytes": 48234567, "out_kbps": 5400, "seg_kb": 2210, "seg_ms": 340, "sub_burned": False,
+                "emby": {"video": "copied", "audio": "remade as AAC 2 ch", "size": "1920x1080", "mbps": 5.8, "fps": 0, "hw": "", "done_pct": 41.2, "reasons": "audio codec not supported"},
+                "source": {"container": "mkv", "size_mb": 1450, "mbps": 8.4, "video": "H264 High 1920x1080 23.976fps SDR 7.6 Mbps",
+                           "audio": "AC3 5.1 640 kbps (audio description)", "audio_name": "English - Dolby Digital - 5.1"}}
     if path == "/api/play/home":
         return {"libraries": [{"id": "v1", "name": "Movies", "type": "movies", "image": img("v1")},
                               {"id": "v2", "name": "TV shows", "type": "tvshows", "image": img("v2")},

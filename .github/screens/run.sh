@@ -75,6 +75,12 @@ tapon Info
 shot 10b_info 3
 adb shell input keyevent 4
 sleep 1
+adb shell input tap 540 1200
+sleep 1
+tapon "Stats for nerds"
+shot 10c_stats 5
+tapon "Close stats"
+sleep 1
 adb shell input keyevent 4
 shot 11_back_with_mini 3
 open "kind=home"
@@ -133,6 +139,29 @@ shot 19_movie_landscape 3
 adb shell input keyevent 4
 adb shell settings put system user_rotation 0
 sleep 3
+# play together: who to invite, then what's going on
+open "kind=item&id=m_magic&extra=Movie&title=Moonlit%20Magic%202"
+sleep 4
+tapon "Play together"
+shot 40_invite_pick 6
+tapon "Ann"
+tapon "Invite"
+shot 41_together 6
+adb shell input tap 540 1200
+sleep 1
+shot 41b_together_controls 2
+sleep 25
+adb shell input tap 540 1200
+shot 42_together_playing 2
+tapon "Stop for everyone"
+sleep 2
+dump; grep -q 'Stop for everyone' shots/ui.xml && tapon "Stop for everyone"
+sleep 2
+adb shell input keyevent 4
+curl -s localhost:8080/mock/invite >/dev/null
+open "kind=home"
+sleep 8
+shot 43_invited 3
 # how she sees the screen: low vision (dark, light, yellow on black), then no vision
 open "kind=settings"
 sleep 3
