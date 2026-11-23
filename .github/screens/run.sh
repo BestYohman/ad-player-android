@@ -59,6 +59,12 @@ adb shell input tap 540 1200
 shot 09_player_hidden 2
 adb shell input tap 540 1200
 sleep 1
+tapon "Audio and subtitles"
+shot 10a_tracks 3
+adb shell input keyevent 4
+sleep 1
+adb shell input tap 540 1200
+sleep 1
 tapon Chapters
 shot 10_chapters 3
 adb shell input keyevent 4

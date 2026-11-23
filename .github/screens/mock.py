@@ -99,6 +99,10 @@ def route(path, q):
                 "latest": [{"id": "v1", "name": "Movies", "type": "movies", "items": MOVIES},
                            {"id": "v2", "name": "TV shows", "type": "tvshows", "items": SERIES}]}
     if path == "/api/play/info": return info(q.get("id", ""))
+    if path == "/api/play/tracks":
+        return {"audio": [{"index": 1, "label": "English - AAC - 5.1 - Default"}, {"index": 2, "label": "Audio description: English - AC3 - 5.1", "ad": True}],
+                "subs": [{"index": 3, "label": "English - SUBRIP", "text": True}, {"index": 4, "label": "English (SDH) - SUBRIP", "text": True}],
+                "ad_index": 2, "main_index": 1}
     if path == "/api/play/list":
         k = q.get("kind", "")
         if k == "episodes": return {"items": EPS}

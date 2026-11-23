@@ -670,7 +670,8 @@ fun UpdateCard() {
     if (Update.available.isEmpty()) return
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var more by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF1E2A1E)).padding(14.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(16.dp)).background(ECard)
+        .border(1.dp, ELine, RoundedCornerShape(16.dp)).padding(16.dp)) {
         Text("Version ${Update.available} is ready", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         Text("You have ${Update.mine}.", color = ESub, fontSize = 14.sp)
         if (more) Text(Update.notes, color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
@@ -1527,34 +1528,44 @@ private fun DownloadsPage(p: Page, openDrawer: () -> Unit) {
 }
 
 // ------------------------------------------------------------------------------------------- audiobooks
+/** Books, as on the web page: All books, Continue listening, Series and Authors as chips; covers in a grid. A series'
+ *  or an author's page (p.id = its id, p.extra = books_inseries / books_byauthor) lists their books. */
 @Composable
 private fun BooksPage(p: Page, openDrawer: () -> Unit) {
-    val (cont, _) = rememberData("/api/play/books/list?kind=books_continue")
-    val (all, err) = rememberData("/api/play/books/list?kind=books_all")
-    val list = all?.itemList()
+    var kind by remember { mutableStateOf(Prefs.str("books_chip", "books_all")) }
+    val sub = p.id.isNotEmpty()
+    val path = if (sub) "/api/play/books/list?kind=${enc(p.extra)}&parent=${enc(p.id)}" else "/api/play/books/list?kind=${enc(kind)}"
+    val (d, err) = rememberData(path)
+    val list = d?.itemList()
     Column(Modifier.fillMaxSize()) {
-        TopBar("Audiobooks", openDrawer)
+        TopBar(null, openDrawer, heading = false)
+        Text((if (sub) p.title else "Audiobooks") + (if (list != null) " (${list.size})" else ""), color = Color.White, fontSize = 28.sp,
+            fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 12.dp).semantics { heading() })
+        if (!sub) LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 10.dp)) {
+            listOf("books_all" to "All books", "books_continue" to "Continue listening", "books_series" to "Series", "books_authors" to "Authors").forEach { (k, l) ->
+                item { Chip(l, kind == k) { kind = k; Prefs.put("books_chip", k) } }
+            }
+        }
         LazyVerticalGrid(
-            GridCells.Adaptive(110.dp), state = W.grid(p),
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 170.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
+            GridCells.Adaptive(150.dp), state = W.grid(Page("books", kind)),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 190.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            val c = cont?.itemList() ?: emptyList()
-            if (c.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Column {
-                        Text("Continue Listening", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            items(c) { PosterCard(it, 150.dp, square = true, sub = if (it.pct > 0) "${it.pct}% done" else it.author) }
-                        }
-                    }
+            when {
+                list == null -> item(span = { GridItemSpan(maxLineSpan) }) { Loading(err) }
+                list.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }) { Text("Nothing here.", color = ESub) }
+                else -> items(list) { b ->
+                    if (b.type == "BookSeries" || b.type == "BookAuthor") Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(ECard).border(1.dp, ELine, RoundedCornerShape(16.dp))
+                            .clickable { W.go(Page("books", b.id, b.label, if (b.type == "BookSeries") "books_inseries" else "books_byauthor")) }
+                            .semantics(mergeDescendants = true) { role = Role.Button }.padding(16.dp)
+                    ) {
+                        Text(b.label, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                        if (b.count > 0) Text("${b.count} " + if (b.count == 1) "book" else "books", color = ESub, fontSize = 14.sp)
+                    } else PosterCard(b, Dp.Unspecified, square = true, sub = if (b.pct > 0) "${b.pct}% done" else b.author)
                 }
             }
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Text("All Audiobooks", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
-            }
-            if (list == null) item(span = { GridItemSpan(maxLineSpan) }) { Loading(err) }
-            else items(list) { PosterCard(it, Dp.Unspecified, square = true) }
         }
     }
 }
