@@ -49,7 +49,6 @@ shot tv_05_movie 5
 key 111
 tapon Play
 sleep 5
-key 111
 key 19
 dump; grep -q 'resource-id="com.android.inputmethod\|leanback.*ime' shots/ui.xml && key 111
 shot tv_06_player_controls 3
