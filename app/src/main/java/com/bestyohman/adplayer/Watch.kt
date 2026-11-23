@@ -298,6 +298,7 @@ fun WatchApp(act: MainActivity) {
                 (if (Engine.isTv) TvFocusIndication else androidx.compose.foundation.LocalIndication.current)) { AudioScreen(act) }
             return@CompositionLocalProvider
         }
+        if (Engine.isTv) LaunchedEffect(W.stack.size, W.tab, W.stack.lastOrNull()) { delay(300); if (W.stack.lastOrNull()?.kind != "search") act.hideKeyboard() }
         if (Engine.isTv) Surface(Modifier.fillMaxSize(), color = EBg) {
             // a TV: the menu down the side, the page beside it (the remote's arrows move between them)
             androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.LocalIndication provides TvFocusIndication) {

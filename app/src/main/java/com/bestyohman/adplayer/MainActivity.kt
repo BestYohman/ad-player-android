@@ -92,8 +92,19 @@ class MainActivity : ComponentActivity() {
         if (Engine.screen == "main") { TogetherNote.cancel(r); Engine.tgJoin(r) } else Engine.joinWhenReady = r
     }
 
+    /** A TV's keyboard can come back by itself when the app comes back: it's closed unless a text box is being typed in. */
+    fun hideKeyboard() {
+        if (!Engine.isTv) return
+        try {
+            val imm = getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+            val f = currentFocus
+            if (f !is android.widget.EditText) imm?.hideSoftInputFromWindow(window.decorView.windowToken, 0)
+        } catch (e: Exception) { }
+    }
+
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
+        window.decorView.postDelayed({ hideKeyboard() }, 400)
         // a "play together" notification (adplayer://join): show the Join button straight away
         if (intent.data?.scheme == "adplayer" && intent.data?.host != "open") Engine.scope.launch { try { Engine.pollInvites() } catch (e: Exception) { } }
         joinFrom(intent)
