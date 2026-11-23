@@ -1217,10 +1217,10 @@ object Engine {
         if (mode == Mode.BOOK) {
             val b = bk ?: return
             val np = (bookPos() + d).coerceIn(0.0, max(0.0, b.duration - 1))
-            bookSeek(np); say((if (d < 0) "Back" else "Forward") + " 30 seconds. Now at ${fmtTime(np)}.")
+            bookSeek(np); say((if (d < 0) "Back" else "Forward") + " ${abs(d).toInt()} seconds. Now at ${fmtTime(np)}.")
         } else {
             val np = max(0.0, exo.currentPosition / 1000.0 + d)
-            exo.seekTo((np * 1000).toLong()); say((if (d < 0) "Back" else "Forward") + " 30 seconds. Now at ${fmtTime(np)}.")
+            exo.seekTo((np * 1000).toLong()); say((if (d < 0) "Back" else "Forward") + " ${abs(d).toInt()} seconds. Now at ${fmtTime(np)}.")
         }
     }
 
@@ -1233,6 +1233,7 @@ object Engine {
             "pause" -> { exo.pause(); say("Paused.") }
             "unpause", "play" -> { exo.play(); say("Playing.") }
             "back30" -> seekRel(-30.0)
+            "back10" -> seekRel(-10.0)
             "fwd30" -> seekRel(30.0)
             "next", "prev" -> {
                 if (mode == Mode.BOOK) {
@@ -1318,6 +1319,18 @@ object Engine {
         val book: Boolean = false, val hasPrev: Boolean = false, val bookId: String = "", val title: String = "",
         val adOff: Boolean = false, val tv: Boolean = false, val video: Boolean = false
     )
+
+    /** Where it's at and how long it is, in seconds (what plays on this phone; 0 to 0 otherwise). */
+    fun posDur(): Pair<Double, Double> {
+        @Suppress("UNUSED_VARIABLE") val t0 = tick
+        if (tg != null) return 0.0 to 0.0
+        return when (mode) {
+            Mode.VIDEO -> { val v = vd; (exo.currentPosition / 1000.0) to (if (v != null && v.runtime > 0) v.runtime else max(0.0, exo.duration / 1000.0)) }
+            Mode.AUDIO -> (exo.currentPosition / 1000.0) to (loc?.runtime ?: 0.0)
+            Mode.BOOK -> { val b = bk; if (b != null && b.ready) bookPos() to b.duration else 0.0 to 0.0 }
+            else -> 0.0 to 0.0
+        }
+    }
 
     fun status(): St {
         @Suppress("UNUSED_VARIABLE") val t0 = tick

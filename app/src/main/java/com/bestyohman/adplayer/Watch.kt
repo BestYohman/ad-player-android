@@ -120,15 +120,20 @@ import org.json.JSONObject
 import java.io.File
 
 // ======================================================================================================
-// The app for people who watch the video: laid out like the Emby app (posters, a home page of rows,
-// a page for each show and movie, and the player's own controls). People who only listen keep the plain
+// The app for people who watch the video: looks and works like the AD Player web page (full vision) - the
+// glass bar at the top, the five tabs at the bottom, a home page of rows, a page for each show and movie, and
+// the mini player. Changes are made on the web page first, then here. People who only listen keep the plain
 // list in Ui.kt, made for TalkBack.
 // ======================================================================================================
 
-val EBg = Color(0xFF101010)
-val ECard = Color(0xFF262626)
-val EGreen = Color(0xFF52B54B)
-val ESub = Color(0xFFA6A6A6)
+// The web page's full-vision colours (AD Player web page, body.sight-full)
+val EBg = Color(0xFF0B0D11)
+val ECard = Color(0xFF14171D)
+val EGreen = Color(0xFF2DD4BF)          // the accent (teal on the web page)
+val ESub = Color(0xFFA3ABB8)
+val ELine = Color(0xFF2B313C)
+val EBtn2 = Color(0xFF1D212A)
+val EInk = Color(0xFF0B0D11)            // dark words on white or teal
 val ERed = Color(0xFFE53935)
 
 /** A page in the watch app. */
@@ -214,8 +219,8 @@ fun WatchApp(act: MainActivity) {
     }
     MaterialTheme(
         colorScheme = darkColorScheme(
-            primary = EGreen, secondary = EGreen, background = EBg, surface = EBg, surfaceVariant = ECard,
-            surfaceContainer = Color(0xFF1C1C1C), surfaceContainerHigh = ECard, onSurfaceVariant = ESub
+            primary = EGreen, onPrimary = EInk, secondary = EGreen, onSecondary = EInk, background = EBg, surface = EBg, surfaceVariant = ECard,
+            surfaceContainer = ECard, surfaceContainerHigh = EBtn2, surfaceContainerHighest = EBtn2, onSurfaceVariant = ESub, outline = ELine
         )
     ) {
         val vd = Engine.vd
@@ -231,22 +236,16 @@ fun WatchApp(act: MainActivity) {
         LaunchedEffect(Engine.message) {
             if (Engine.message.isNotEmpty()) { W.toast = Engine.message; val n = ++W.toastSeq; delay(3500); if (W.toastSeq == n) W.toast = "" }
         }
-        val drawer = rememberDrawerState(DrawerValue.Closed)
-        val scope = rememberCoroutineScope()
-        BackHandler(enabled = drawer.isOpen || W.player || W.stack.size > 1 || W.tab != "home") {
-            if (drawer.isOpen) scope.launch { drawer.close() } else W.back()
-        }
+        BackHandler(enabled = W.player || W.stack.size > 1 || W.tab != "home") { W.back() }
         if (showPlayer) { if (video) PlayerScreen(act) else AudioScreen(act); return@MaterialTheme }
-        ModalNavigationDrawer(drawerState = drawer, drawerContent = { Drawer { scope.launch { drawer.close() } } }) {
-            Surface(Modifier.fillMaxSize(), color = EBg) {
-                Box(Modifier.fillMaxSize()) {
-                    val page = W.stack.last()
-                    key(page) { PageContent(page) { scope.launch { drawer.open() } } }
-                    Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding()) {
-                        if (W.toast.isNotEmpty()) Toast(W.toast)
-                        MiniPlayer()
-                        BottomNav()
-                    }
+        Surface(Modifier.fillMaxSize(), color = EBg) {
+            Box(Modifier.fillMaxSize()) {
+                val page = W.stack.last()
+                key(page) { PageContent(page) {} }
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding()) {
+                    if (W.toast.isNotEmpty()) Toast(W.toast)
+                    MiniPlayer()
+                    BottomNav()
                 }
             }
         }
@@ -257,8 +256,8 @@ fun WatchApp(act: MainActivity) {
 private fun Toast(t: String) {
     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
         Text(
-            t, color = Color.White, style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.align(Alignment.Center).background(Color(0xEE333333), RoundedCornerShape(10.dp)).padding(horizontal = 14.dp, vertical = 10.dp)
+            t, color = EInk, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
+            modifier = Modifier.align(Alignment.Center).background(Color(0xF2F2F4F7), RoundedCornerShape(14.dp)).padding(horizontal = 18.dp, vertical = 12.dp)
         )
     }
 }
@@ -272,7 +271,8 @@ private fun PageContent(p: Page, openDrawer: () -> Unit) {
         "item" -> if (p.extra == "Season") SeasonPage(p, openDrawer) else DetailPage(p, openDrawer)
         "search" -> SearchPage(p, openDrawer)
         "downloads" -> DownloadsPage(p, openDrawer)
-        "movies" -> MoviesTab(openDrawer)
+        "movies" -> LibTab("movies", openDrawer)
+        "libtab" -> LibTab(p.id, openDrawer)
         "books" -> BooksPage(p, openDrawer)
         "book" -> BookPage(p, openDrawer)
         "settings" -> SettingsPage(p, openDrawer)
@@ -281,45 +281,55 @@ private fun PageContent(p: Page, openDrawer: () -> Unit) {
     }
 }
 
-/** The bar at the top: menu (or back), the name, Play on, and who's signed in. */
+/** The bar at the top, as on the web page: a floating glass bar with the logo, "AD Player", Search and Play on (Back
+ *  in front when a page was opened from another). A page's name is its big heading under the bar. */
 @Composable
-private fun TopBar(title: String?, openDrawer: () -> Unit, solid: Boolean = true) {
+private fun TopBar(title: String?, openDrawer: () -> Unit, solid: Boolean = true, heading: Boolean = true) {
     var castOpen by remember { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth()
-            .background(if (solid) EBg else Color.Transparent)
-            .statusBarsPadding().height(56.dp).padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (W.stack.size > 1) IconButton(onClick = { W.back() }) { Icon(Ic.Back, "Back", tint = Color.White) }
-        else IconButton(onClick = openDrawer) { Icon(Ic.Menu, "Menu", tint = Color.White) }
-        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-            if (title == null) {
-                Icon(Ic.Play, null, tint = EGreen, modifier = Modifier.size(30.dp))
-                Text("AD Player", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, modifier = Modifier.padding(start = 2.dp))
-            } else Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 19.sp, maxLines = 1,
-                overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 4.dp))
+    Column(Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().then(if (solid) Modifier.background(EBg) else Modifier).statusBarsPadding().padding(start = 10.dp, end = 10.dp, top = 8.dp)) {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 60.dp).clip(RoundedCornerShape(20.dp))
+                    .background(if (solid) Color(0xF212151C) else Color(0x5C12151C))
+                    .border(1.dp, Color(0x17FFFFFF), RoundedCornerShape(20.dp)).padding(start = 12.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (W.stack.size > 1) { GlassButton(Ic.Back, "Back") { W.back() }; Spacer(Modifier.width(8.dp)) }
+                LogoMark()
+                Text("AD Player", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 19.sp, maxLines = 1,
+                    modifier = Modifier.weight(1f).padding(start = 10.dp).semantics { heading() })
+                GlassButton(Ic.Search, "Search") { if (W.stack.last().kind != "search") W.go(Page("search")) }
+                Spacer(Modifier.width(8.dp))
+                GlassButton(Ic.Cast, "Play on: " + (Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "choose"), wide = true) { castOpen = true }
+            }
         }
-        IconButton(onClick = { castOpen = true }) {
-            Icon(Ic.Cast, "Play on: " + (Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "choose"), tint = Color.White)
-        }
-        Avatar { W.go(Page("settings")) }
+        if (heading && solid && !title.isNullOrEmpty()) Text(
+            title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,
+            modifier = Modifier.fillMaxWidth().background(EBg).padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp).semantics { heading() }
+        )
     }
     if (castOpen) PlayOnDialog { castOpen = false }
 }
 
+/** The web page's logo: headphones on a teal tile. */
 @Composable
-private fun Avatar(onClick: () -> Unit) {
-    val name = Engine.me?.s("name") ?: ""
+fun LogoMark(size: Dp = 40.dp) {
     Box(
-        Modifier.padding(end = 2.dp).size(48.dp).clip(CircleShape).clickable(onClick = onClick)
-            .semantics { contentDescription = "Settings - signed in as $name"; role = Role.Button },
+        Modifier.size(size).clip(RoundedCornerShape(12.dp))
+            .background(Brush.linearGradient(listOf(Color(0xFF5EEAD4), Color(0xFF2DD4BF), Color(0xFF0F9E8E)))),
         contentAlignment = Alignment.Center
-    ) {
-        Box(Modifier.size(36.dp).clip(CircleShape).background(EGreen), contentAlignment = Alignment.Center) {
-            Text(name.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-        }
-    }
+    ) { Icon(Ic.Headphones, null, tint = EInk, modifier = Modifier.size(size * 0.62f)) }
+}
+
+/** A round glass button in the top bar (Search, Play on, Back). */
+@Composable
+fun GlassButton(icon: ImageVector, label: String, wide: Boolean = false, onClick: () -> Unit) {
+    Box(
+        Modifier.height(44.dp).width(if (wide) 54.dp else 44.dp).clip(RoundedCornerShape(if (wide) 22.dp else 12.dp))
+            .background(Color(0x12FFFFFF)).border(1.dp, Color(0x14FFFFFF), RoundedCornerShape(if (wide) 22.dp else 12.dp))
+            .clickable(onClick = onClick).semantics { contentDescription = label; role = Role.Button },
+        contentAlignment = Alignment.Center
+    ) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(22.dp)) }
 }
 
 @Composable
@@ -331,29 +341,43 @@ fun PlayOnDialog(onClose: () -> Unit) {
 @Composable
 private fun BottomNav() {
     if (W.player) return
-    Box(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, bottom = 10.dp, top = 4.dp), contentAlignment = Alignment.Center) {
         Row(
-            Modifier.widthIn(max = 520.dp).fillMaxWidth().clip(RoundedCornerShape(40.dp)).background(Color(0xF0232323))
-                .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(40.dp)).padding(vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly
+            Modifier.widthIn(max = 560.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Color(0xE612151C))
+                .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(24.dp)).padding(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            listOf(Triple("home", "Home", Ic.Home), Triple("search", "Search", Ic.Search),
-                Triple("downloads", "Downloads", Ic.Download), Triple("movies", "Movies", Ic.Movie)).forEach { (k, l, ic) ->
+            listOf(
+                Triple("home", "Home", Ic.Home), Triple("shows", "Shows", Ic.Tv), Triple("movies", "Movies", Ic.Movie),
+                Triple("books", "Books", Ic.Headphones), Triple("you", "You", Ic.Person)
+            ).forEach { (k, l, ic) ->
                 val on = W.tab == k
                 Column(
-                    Modifier.weight(1f).clip(RoundedCornerShape(30.dp)).clickable { W.openTab(k) }.padding(vertical = 4.dp)
-                        .semantics { contentDescription = l + if (on) ", selected" else "" },
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    Modifier.weight(1f).heightIn(min = 52.dp).clip(RoundedCornerShape(18.dp))
+                        .background(if (on) Color(0x242DD4BF) else Color.Transparent)
+                        .clickable {
+                            when (k) {
+                                "shows" -> W.openTab(k, Page("libtab", "tvshows"))
+                                "movies" -> W.openTab(k, Page("libtab", "movies"))
+                                "books" -> W.openTab(k, Page("books"))
+                                "you" -> W.openTab(k, Page("settings"))
+                                else -> W.openTab(k)
+                            }
+                        }
+                        .semantics { contentDescription = l + if (on) ", selected" else ""; role = Role.Tab },
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
                 ) {
-                    Icon(ic, null, tint = if (on) EGreen else Color.White, modifier = Modifier.size(26.dp))
-                    Text(l, color = if (on) EGreen else Color.White, fontSize = 13.sp)
+                    Icon(ic, null, tint = if (on) EGreen else ESub, modifier = Modifier.size(24.dp))
+                    Text(l, color = if (on) EGreen else ESub, fontSize = 12.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium,
+                        modifier = Modifier.padding(top = 2.dp))
                 }
             }
         }
     }
 }
 
-/** What's playing, above the bar at the bottom (tap it for the player). */
+/** What's playing, above the tabs (as on the web page): the picture, its name and where it's at, and Stop, Back 10,
+ *  Play/Pause, Forward 30 and Next. Tap the picture or the name for the player. */
 @Composable
 private fun MiniPlayer() {
     val st = Engine.status()
@@ -367,26 +391,62 @@ private fun MiniPlayer() {
         else -> ""
     }
     val title = b?.title ?: v?.title ?: Engine.loc?.title ?: st.title.ifEmpty { st.text }
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Row(
-        Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 12.dp).clip(RoundedCornerShape(12.dp)).background(ECard)
-            .clickable { if (v != null || b != null || Engine.loc != null) W.player = true else W.go(Page("nowplaying")) }
-            .semantics { liveRegion = LiveRegionMode.Polite }.padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically
+    val (pos, len) = Engine.posDur()
+    val where = (if (st.paused) "Paused" else "Playing") + when {
+        st.tv -> " on " + (Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "the TV")
+        Engine.tg != null -> " together"
+        len > 0 -> " · ${clock(pos)} / ${clock(len)}"
+        else -> ""
+    }
+    val open = { if (v != null || b != null || Engine.loc != null) W.player = true else W.go(Page("nowplaying")) }
+    val local = Engine.mode != Engine.Mode.NONE && Engine.tg == null
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Column(
+        Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp).clip(RoundedCornerShape(20.dp))
+            .background(Color(0xF012151C)).border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(20.dp))
     ) {
-        Box(Modifier.size(width = if (b != null) 44.dp else 70.dp, height = 44.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black)) {
-            if (pic.isNotEmpty()) AsyncImage(picUrl(pic, 160), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Row(
+            Modifier.fillMaxWidth().clickable(onClick = open).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }
+                .padding(start = 10.dp, end = 14.dp, top = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).background(EBtn2)) {
+                if (pic.isNotEmpty()) AsyncImage(picUrl(pic, 160), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            }
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(where, color = ESub, fontSize = 13.sp, maxLines = 1)
+            }
         }
-        Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-            Text(title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-            Text(
-                (if (st.paused) "Paused" else "Playing") + " " +
-                    (if (st.tv) "on " + (Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "the TV") else if (Engine.tg != null) "together" else "on this phone"),
-                color = ESub, fontSize = 12.sp, maxLines = 1
-            )
+        Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            MiniBtn(Ic.Stop, if (Engine.tg != null) "Stop for everyone" else "Stop") { Engine.stopPressed() }
+            MiniBtn(Ic.Replay, if (local) "Back 10 seconds" else "Back 30 seconds") { Engine.cmd(if (local) "back10" else "back30") }
+            Box(
+                Modifier.size(52.dp).clip(CircleShape).background(Color.White).clickable { Engine.cmd("playpause") }
+                    .semantics { contentDescription = if (st.paused) "Play" else "Pause"; role = Role.Button },
+                contentAlignment = Alignment.Center
+            ) { Icon(if (st.paused) Ic.Play else Ic.Pause, null, tint = EInk, modifier = Modifier.size(30.dp)) }
+            MiniBtn(Ic.Forward, "Forward 30 seconds") { Engine.cmd("fwd30") }
+            if (st.hasNext && !st.book) MiniBtn(Ic.Next, "Next episode") { Engine.cmd("next") }
+            else if (st.book && st.hasNext) MiniBtn(Ic.Next, "Next chapter") { Engine.cmd("next") }
         }
-        IconButton(onClick = { Engine.cmd("playpause") }) { Icon(if (st.paused) Ic.Play else Ic.Pause, if (st.paused) "Play" else "Pause", tint = Color.White) }
-        IconButton(onClick = { Engine.stopPressed() }) { Icon(Ic.Close, if (Engine.tg != null) "Stop for everyone" else "Stop", tint = ESub) }
+        if (len > 0) Box(Modifier.fillMaxWidth().height(3.dp).background(Color(0x40FFFFFF))) {
+            Box(Modifier.fillMaxHeight().fillMaxWidth((pos / len).toFloat().coerceIn(0f, 1f)).background(EGreen))
+        }
     } }
+}
+
+@Composable
+private fun MiniBtn(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Box(
+        Modifier.size(48.dp).clip(CircleShape).clickable(onClick = onClick).semantics { contentDescription = label; role = Role.Button },
+        contentAlignment = Alignment.Center
+    ) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(26.dp)) }
+}
+
+/** 0:03, 12:40, 1:02:05 */
+fun clock(sec: Double): String {
+    val t = sec.toLong().coerceAtLeast(0); val h = t / 3600; val m = (t % 3600) / 60; val ss = t % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, ss) else "%d:%02d".format(m, ss)
 }
 
 // ------------------------------------------------------------------------------------------- the drawer
@@ -450,8 +510,8 @@ fun Poster(item: Item?, src: String, w: Int, modifier: Modifier, fallback: Strin
         if (item != null) {
             val played = W.isPlayed(item)
             when {
-                played -> Badge(Modifier.align(Alignment.TopEnd)) { Icon(Ic.Check, null, tint = Color.White, modifier = Modifier.size(18.dp)) }
-                item.unplayed > 0 -> Badge(Modifier.align(Alignment.TopEnd)) { Text("${item.unplayed}", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                played -> Badge(Modifier.align(Alignment.BottomEnd)) { Icon(Ic.Check, null, tint = EInk, modifier = Modifier.size(16.dp)) }
+                item.unplayed > 0 -> Badge(Modifier.align(Alignment.TopEnd)) { Text("${item.unplayed}", color = EInk, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
             }
             if (item.hasAd == false) Text(
                 "No AD", color = Color.White, fontSize = 11.sp,
@@ -583,12 +643,13 @@ private fun InviteCards() {
 @Composable
 fun WhitePill(text: String, icon: ImageVector?, modifier: Modifier, dark: Boolean = false, size: Int = 20, onClick: () -> Unit) {
     Row(
-        modifier.clip(RoundedCornerShape(50)).background(if (dark) Color(0xFF2B2B2B) else Color.White).clickable(onClick = onClick)
+        modifier.clip(RoundedCornerShape(14.dp)).background(if (dark) EBtn2 else Color.White)
+            .then(if (dark) Modifier.border(1.dp, ELine, RoundedCornerShape(14.dp)) else Modifier).clickable(onClick = onClick)
             .semantics { role = Role.Button }.padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
     ) {
-        if (icon != null) Icon(icon, null, tint = if (dark) Color.White else Color.Black, modifier = Modifier.size(28.dp))
-        Text(text, color = if (dark) Color.White else Color.Black, fontSize = size.sp, fontWeight = FontWeight.Medium,
+        if (icon != null) Icon(icon, null, tint = if (dark) Color.White else EInk, modifier = Modifier.size(26.dp))
+        Text(text, color = if (dark) Color.White else EInk, fontSize = size.sp, fontWeight = if (dark) FontWeight.SemiBold else FontWeight.ExtraBold,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = if (icon != null) 8.dp else 0.dp))
     }
 }
@@ -636,17 +697,8 @@ private fun HomePage(p: Page, favorites: Boolean, openDrawer: () -> Unit) {
         Refreshable(Modifier.fillMaxSize(), belowTopBar = true) {
         LazyColumn(Modifier.fillMaxSize(), state = W.list(p), contentPadding = PaddingValues(bottom = 170.dp)) {
             item { Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars)) }
-            item { Spacer(Modifier.height(56.dp)) }
-            item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    listOf("Home" to false, "Favorites" to true).forEach { (l, f) ->
-                        val on = f == favorites
-                        Text(l, color = if (on) Color.White else ESub, fontSize = 18.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-                            modifier = Modifier.padding(horizontal = 4.dp).clip(RoundedCornerShape(20.dp)).background(if (on) Color(0xFF3A3A3A) else Color.Transparent)
-                                .clickable { W.openTab("home", Page(if (f) "favorites" else "home")) }.padding(horizontal = 18.dp, vertical = 6.dp))
-                    }
-                }
-            }
+            item { Spacer(Modifier.height(76.dp)) }
+            if (favorites) item { Text("Favorites", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 16.dp).semantics { heading() }) }
             item { OfflineNote() }
             item { InviteCards() }
             item { UpdateCard() }
@@ -742,11 +794,15 @@ private fun GridPage(p: Page, openDrawer: () -> Unit) {
 }
 
 @Composable
-private fun MoviesTab(openDrawer: () -> Unit) {
+private fun LibTab(type: String, openDrawer: () -> Unit) {
     val (home, err) = rememberData("/api/play/home")
-    val lib = home?.optJSONArray("libraries").objs().firstOrNull { it.s("type") == "movies" }
-    LaunchedEffect(lib?.s("id")) { if (lib != null) W.stack[W.stack.lastIndex] = Page("library", lib.s("id"), lib.s("name")) }
-    Column { TopBar("Movies", openDrawer); if (home != null && lib == null) Text("There's no movie library.", color = ESub, modifier = Modifier.padding(16.dp)) else Loading(err) }
+    val lib = home?.optJSONArray("libraries").objs().firstOrNull { it.s("type") == type }
+    val name = if (type == "tvshows") "Shows" else "Movies"
+    LaunchedEffect(lib?.s("id")) { if (lib != null) W.stack[W.stack.lastIndex] = Page("library", lib.s("id"), name) }
+    Column {
+        TopBar(name, openDrawer)
+        if (home != null && lib == null) Text("There's no ${name.lowercase()} library.", color = ESub, modifier = Modifier.padding(16.dp)) else Loading(err)
+    }
 }
 
 // ------------------------------------------------------------------------------------------- a show or a movie
@@ -945,7 +1001,7 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
             }
         }
 
-        TopBar(if (scrolled) p.title else "", openDrawer, solid = scrolled)
+        TopBar(if (scrolled) p.title else "", openDrawer, solid = scrolled, heading = false)
         if (dl && info != null) DownloadChoices(info) { dl = false }
     }
 }
@@ -1006,7 +1062,7 @@ private fun SeasonPage(p: Page, openDrawer: () -> Unit) {
                 else -> items(list) { EpisodeCard(it) }
             }
         }
-        TopBar(if (scrolled) info?.seriesName?.ifEmpty { p.title } ?: p.title else "", openDrawer, solid = scrolled)
+        TopBar(if (scrolled) info?.seriesName?.ifEmpty { p.title } ?: p.title else "", openDrawer, solid = scrolled, heading = false)
     }
 }
 
@@ -1263,7 +1319,7 @@ private fun BookPage(p: Page, openDrawer: () -> Unit) {
                 }
             }
         }
-        TopBar("", openDrawer, solid = false)
+        TopBar("", openDrawer, solid = false, heading = false)
     }
     if (castOpen) PlayOnDialog { castOpen = false }
     if (bmOpen) BookmarkSheet(item.id, bd?.s("title")?.ifEmpty { null } ?: item.label) { bmOpen = false }
@@ -1288,6 +1344,11 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         TopBar("Settings", openDrawer)
         LazyColumn(contentPadding = PaddingValues(bottom = 170.dp)) {
+            item { row("Downloads", "What's saved on this phone", Ic.Download) { W.go(Page("downloads")) } }
+            item { row("Favorites", "Shows and movies you marked with the heart", Ic.HeartFull) { W.go(Page("favorites")) } }
+            item { row("Without audio description", "Shows and movies that have none yet", Ic.Ear) { W.go(Page("list", "noad", "Without audio description")) } }
+            item { row("Requests for audio description", "What's been asked for", Ic.Ear) { W.go(Page("list", "requests", "Requests for audio description")) } }
+            item { HorizontalDivider(color = ELine) }
             item { row("Play on", Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "Choose", Ic.Cast) { castOpen = true } }
             if (Engine.devHelp.isNotEmpty()) item { Text(Engine.devHelp, color = ESub, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 56.dp)) }
             item {
