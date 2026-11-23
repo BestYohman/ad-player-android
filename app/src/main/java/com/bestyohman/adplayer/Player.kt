@@ -111,6 +111,7 @@ fun PlayerScreen(act: MainActivity) {
     val touch = { poke = System.currentTimeMillis() }
     val keys = remember { androidx.compose.ui.focus.FocusRequester() }
     LaunchedEffect(shown, locked) { if (!shown || locked) try { keys.requestFocus() } catch (e: Exception) { } }
+    LaunchedEffect(shown) { if (Engine.isTv) { delay(150); act.hideKeyboard() } }       // (a TV's keyboard never belongs over the video)
     Box(
         Modifier.fillMaxSize().background(Color.Black)
             .focusRequester(keys)
