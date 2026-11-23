@@ -307,9 +307,9 @@ fun WatchApp(act: MainActivity) {
 private fun Toast(t: String) {
     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
         Text(
-            t, color = if (Look.low) EFg else EInk, style = MaterialTheme.typography.bodyMedium, fontWeight = if (Look.low) FontWeight.Bold else FontWeight.Medium,
-            modifier = Modifier.align(Alignment.Center).background(if (Look.low) EBtn2 else Color(0xF2F2F4F7), RoundedCornerShape(14.dp))
-                .then(if (Look.low) Modifier.border(Look.line, ELine, RoundedCornerShape(14.dp)) else Modifier).padding(horizontal = 18.dp, vertical = 12.dp)
+            t, color = if (Look.low) EBg else EInk, style = MaterialTheme.typography.bodyMedium, fontWeight = if (Look.low) FontWeight.Bold else FontWeight.Medium,
+            modifier = Modifier.align(Alignment.Center).background(if (Look.low) EFg else Color(0xF2F2F4F7), RoundedCornerShape(14.dp))
+                .then(if (Look.low) Modifier.border(Look.line, EBg, RoundedCornerShape(14.dp)) else Modifier).padding(horizontal = 18.dp, vertical = 12.dp)
         )
     }
 }
@@ -348,14 +348,22 @@ private fun TopBar(title: String?, openDrawer: () -> Unit, solid: Boolean = true
             ) {
                 if (W.stack.size > 1) { GlassButton(Ic.Back, "Back") { W.back() }; Spacer(Modifier.width(8.dp)) }
                 LogoMark()
-                Text("AD Player", color = EFg, fontWeight = FontWeight.ExtraBold, fontSize = 19.sp, maxLines = 1,
+                if (Look.low && W.stack.size > 1) Spacer(Modifier.weight(1f))     // no room for the name beside Back at these sizes
+                else Text("AD Player", color = EFg, fontWeight = FontWeight.ExtraBold, fontSize = 19.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f).padding(start = 10.dp).semantics { heading() })
+                if (Look.low && !wideScreen()) {
+                    val n = SCREENS[(SCREENS.indexOfFirst { it.first == Engine.sOpt("screen") }.coerceAtLeast(0) + 1) % SCREENS.size]
+                    GlassButton(Ic.Contrast, "Screen: ${SCREENS.first { it.first == Engine.sOpt("screen") || it == SCREENS.last() }.second.lowercase()}. Press for ${n.second.lowercase()}.") {
+                        Engine.sightSave(mapOf("screen" to n.first), "Screen: ${n.second.lowercase()}.")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                }
                 GlassButton(Ic.Search, "Search") { if (W.stack.last().kind != "search") W.go(Page("search")) }
                 Spacer(Modifier.width(8.dp))
                 GlassButton(Ic.Cast, "Play on: " + (Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "choose"), wide = true) { castOpen = true }
             }
         }
-        if (Look.low) LowTools()
+        if (Look.low && wideScreen()) LowTools()
         if (heading && solid && !title.isNullOrEmpty()) Text(
             title, color = EFg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,
             modifier = Modifier.fillMaxWidth().background(EBg).padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp).semantics { heading() }
@@ -364,7 +372,11 @@ private fun TopBar(title: String?, openDrawer: () -> Unit, solid: Boolean = true
     if (castOpen) PlayOnDialog { castOpen = false }
 }
 
-/** Low vision: smaller text, larger text and the screen's colours, under the bar at the top (as on the web page). */
+private val SCREENS = listOf("dark" to "Dark", "light" to "Light", "yellow" to "Yellow on black")
+@Composable
+private fun wideScreen() = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 760
+
+/** Low vision on a wide screen: smaller text, larger text and the screen's colours, under the bar at the top (as on the web page). */
 @Composable
 private fun LowTools() {
     val sizes = listOf("normal" to "Normal", "large" to "Large", "larger" to "Larger", "largest" to "Largest")
@@ -397,9 +409,9 @@ fun Modifier.focusRing(shape: androidx.compose.ui.graphics.Shape = RoundedCorner
 fun LogoMark(size: Dp = 40.dp) {
     Box(
         Modifier.size(size).clip(RoundedCornerShape(12.dp))
-            .background(Brush.linearGradient(listOf(Color(0xFF5EEAD4), Color(0xFF2DD4BF), Color(0xFF0F9E8E)))),
+            .background(if (Look.low) Brush.linearGradient(listOf(EFg, EFg)) else Brush.linearGradient(listOf(Color(0xFF5EEAD4), Color(0xFF2DD4BF), Color(0xFF0F9E8E)))),
         contentAlignment = Alignment.Center
-    ) { Icon(Ic.Headphones, null, tint = Color(0xFF0B0D11), modifier = Modifier.size(size * 0.62f)) }
+    ) { Icon(Ic.Headphones, null, tint = if (Look.low) EBg else Color(0xFF0B0D11), modifier = Modifier.size(size * 0.62f)) }
 }
 
 /** A round glass button in the top bar (Search, Play on, Back). */
@@ -493,19 +505,19 @@ private fun MiniPlayer() {
                 .padding(start = 10.dp, end = 14.dp, top = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).background(EBtn2)) {
+            if (!Look.low) Box(Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).background(EBtn2)) {
                 if (pic.isNotEmpty() && Look.posters) AsyncImage(picUrl(pic, 160), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             }
-            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Column(Modifier.weight(1f).padding(start = if (Look.low) 6.dp else 12.dp)) {
                 Text(title, color = EFg, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Text(where, color = ESub, fontSize = 13.sp, maxLines = 1)
+                Text(where, color = if (Look.low) EFg else ESub, fontSize = 13.sp, maxLines = 1)
             }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp), horizontalArrangement = if (Look.low) Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally) else Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             MiniBtn(Ic.Stop, if (Engine.tg != null) "Stop for everyone" else "Stop") { Engine.stopPressed() }
             MiniBtn(Ic.Replay, if (local) "Back 10 seconds" else "Back 30 seconds") { Engine.cmd(if (local) "back10" else "back30") }
             Box(
-                Modifier.size(52.dp).clip(CircleShape).background(EMain).clickable { Engine.cmd("playpause") }
+                Modifier.size(if (Look.low) 54.dp else 52.dp).clip(if (Look.low) RoundedCornerShape(14.dp) else CircleShape).background(EMain).clickable { Engine.cmd("playpause") }
                     .semantics { contentDescription = if (st.paused) "Play" else "Pause"; role = Role.Button },
                 contentAlignment = Alignment.Center
             ) { Icon(if (st.paused) Ic.Play else Ic.Pause, null, tint = EInk, modifier = Modifier.size(30.dp)) }
@@ -592,9 +604,11 @@ private fun TrkRadio(label: String, on: Boolean, onPick: () -> Unit) {
 @Composable
 private fun MiniBtn(icon: ImageVector, label: String, onClick: () -> Unit) {
     Box(
-        Modifier.size(48.dp).clip(CircleShape).clickable(onClick = onClick).semantics { contentDescription = label; role = Role.Button },
+        Modifier.size(if (Look.low) 54.dp else 48.dp).clip(if (Look.low) RoundedCornerShape(14.dp) else CircleShape)
+            .then(if (Look.low) Modifier.border(Look.line, ELine, RoundedCornerShape(14.dp)) else Modifier)
+            .clickable(onClick = onClick).semantics { contentDescription = label; role = Role.Button },
         contentAlignment = Alignment.Center
-    ) { Icon(icon, null, tint = EFg, modifier = Modifier.size(26.dp)) }
+    ) { Icon(icon, null, tint = EFg, modifier = Modifier.size(if (Look.low) 28.dp else 26.dp)) }
 }
 
 // ------------------------------------------------------------------------------------------- the drawer
@@ -706,9 +720,9 @@ fun PosterCard(item: Item, width: Dp, wide: Boolean = false, square: Boolean = f
             else -> item.poster.ifEmpty { item.thumb }
         }
         Poster(item, src, if (wide) 800 else 320, Modifier.fillMaxWidth().aspectRatio(if (wide) 16f / 9f else if (square) 1f else 2f / 3f), title)
-        Text(title, color = EFg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        Text(title, color = EFg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = if (Look.low) 4 else 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
-        if (subtitle.isNotEmpty()) Text(subtitle, color = ESub, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        if (subtitle.isNotEmpty()) Text(subtitle, color = ESub, fontSize = 13.sp, maxLines = if (Look.low) 3 else 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth())
     }
 }
@@ -798,9 +812,9 @@ private fun InviteCards() {
 @Composable
 fun WhitePill(text: String, icon: ImageVector?, modifier: Modifier, dark: Boolean = false, size: Int = 20, onClick: () -> Unit) {
     Row(
-        modifier.clip(RoundedCornerShape(14.dp)).background(if (dark) EBtn2 else EMain)
-            .then(if (dark) Modifier.border(1.dp, ELine, RoundedCornerShape(14.dp)) else Modifier).clickable(onClick = onClick)
-            .semantics { role = Role.Button }.padding(horizontal = 16.dp),
+        modifier.then(if (Look.low) Modifier.heightIn(min = 64.dp) else Modifier).clip(RoundedCornerShape(14.dp)).background(if (dark) EBtn2 else EMain)
+            .then(if (dark || Look.low) Modifier.border(if (Look.low) Look.line else 1.dp, if (dark) ELine else EMain, RoundedCornerShape(14.dp)) else Modifier).clickable(onClick = onClick)
+            .semantics { role = Role.Button }.padding(horizontal = if (Look.low) 20.dp else 16.dp),
         horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
     ) {
         if (icon != null) Icon(icon, null, tint = if (dark) EFg else EInk, modifier = Modifier.size(26.dp))
@@ -1287,7 +1301,23 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
             if (info == null) { item { Loading(err) }; return@LazyColumn }
             val j = info.j
             val playable = ep || info.type == "Movie"
-            item {
+            if (Look.low) {
+                val bd = info.backdrop.ifEmpty { j.s("series_backdrop") }.ifEmpty { info.thumb }
+                if (bd.isNotEmpty() && Look.posters) item {
+                    AsyncImage(picUrl(bd, 1280), null, Img.loader, Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(ECard), contentScale = ContentScale.Crop)
+                }
+                item {
+                    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
+                        if (ep && info.seriesName.isNotEmpty() && info.se >= 0 && info.ep >= 0) Text("Season ${info.se}, episode ${info.ep}", color = EFg, fontSize = 15.sp)
+                        val meta = listOf(if (info.type == "Series") info.years else info.year,
+                            if (info.type == "Series") j.i("season_count").let { n -> if (n > 0) "$n season" + (if (n == 1) "" else "s") else "" } else info.length,
+                            info.rating, if (info.score.isNotEmpty()) "★ ${info.score}" else "").filter { it.isNotEmpty() }.joinToString(" · ")
+                        if (meta.isNotEmpty()) Text(meta, color = EFg, fontSize = 15.sp)
+                        if (info.resume.isNotEmpty()) Text((if (info.pct > 0) "${info.pct}% watched · " else "") + "Resumes at ${info.resume}", color = EFg, fontSize = 15.sp)
+                        if (info.hasAd == false) Text("Without description", color = EWarn, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            } else item {
                 val bd = info.backdrop.ifEmpty { j.s("series_backdrop") }
                 Box(Modifier.fillMaxWidth()) {
                     Box(Modifier.fillMaxWidth().height(220.dp).background(ECard)) {
@@ -1315,33 +1345,34 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
             }
             item {
                 FlowRow(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    verticalArrangement = Arrangement.spacedBy(10.dp), maxItemsInEachRow = if (Look.low) 1 else Int.MAX_VALUE) {
+                    val bm = if (Look.low) Modifier.fillMaxWidth() else Modifier
                     if (playable) {
                         WebBtn(if (info.resume.isNotEmpty()) "Resume from ${info.resume}" else "Play", main = true,
-                            label = (if (info.resume.isNotEmpty()) "Resume " else "Play ") + info.label) { Engine.start(info, info.resume.isNotEmpty()) }
-                        WebBtn("Play together", label = "Play ${info.label} together") { Engine.start(info, info.resume.isNotEmpty(), together = true) }
-                        if (info.resume.isNotEmpty()) WebBtn("Start over", label = "Start ${info.label} from the beginning") { Engine.start(info, false) }
+                            label = (if (info.resume.isNotEmpty()) "Resume " else "Play ") + info.label, modifier = bm) { Engine.start(info, info.resume.isNotEmpty()) }
+                        WebBtn("Play together", label = "Play ${info.label} together", modifier = bm) { Engine.start(info, info.resume.isNotEmpty(), together = true) }
+                        if (info.resume.isNotEmpty()) WebBtn("Start over", label = "Start ${info.label} from the beginning", modifier = bm) { Engine.start(info, false) }
                     } else {
                         val next = j.optJSONObject("next_up")?.let { Item(it) }
                         if (next != null) WebBtn(
                             (if (next.resume.isNotEmpty()) "Resume " else "Play ") + if (next.se >= 0 && next.ep >= 0) "S${next.se}:E${next.ep}" else next.name,
-                            main = true, label = (if (next.resume.isNotEmpty()) "Resume " else "Play ") + next.label) { Engine.start(next, next.resume.isNotEmpty()) }
+                            main = true, label = (if (next.resume.isNotEmpty()) "Resume " else "Play ") + next.label, modifier = bm) { Engine.start(next, next.resume.isNotEmpty()) }
                     }
-                    if (ep && info.seriesId.isNotEmpty()) WebBtn("Go to ${info.seriesName.ifEmpty { "the show" }}") {
+                    if (ep && info.seriesId.isNotEmpty()) WebBtn("Go to ${info.seriesName.ifEmpty { "the show" }}", modifier = bm) {
                         W.go(Page("item", info.seriesId, info.seriesName, "Series"))
                     }
                     if (!ep) WebBtn(if (info.favorite) "Remove from favorites" else "Add to favorites",
-                        label = (if (info.favorite) "Remove ${info.label} from favorites" else "Add ${info.label} to favorites")) { Engine.toggleFavorite(info) }
+                        label = (if (info.favorite) "Remove ${info.label} from favorites" else "Add ${info.label} to favorites"), modifier = bm) { Engine.toggleFavorite(info) }
                     if (playable) {
                         val saved = Offline.forItem(info.id)
-                        WebBtn(if (saved.any { it.done }) "Downloaded" else if (saved.isNotEmpty()) "Downloading…" else "Download") {
+                        WebBtn(if (saved.any { it.done }) "Downloaded" else if (saved.isNotEmpty()) "Downloading…" else "Download", modifier = bm) {
                             if (saved.isNotEmpty()) W.go(Page("downloads")) else dl = true
                         }
                     }
                     val pl = W.isPlayed(info)
-                    WebBtn(if (pl) "Mark as not watched" else "Mark as watched") { W.markPlayed(info, !pl) }
-                    if (info.hasAd == false) WebBtn(if (info.requested) "Asked for audio description" else "Ask for audio description") { Engine.askForAd(info) }
-                    WebBtn("Play on…") { castOpen = true }
+                    WebBtn(if (pl) "Mark as not watched" else "Mark as watched", modifier = bm) { W.markPlayed(info, !pl) }
+                    if (info.hasAd == false) WebBtn(if (info.requested) "Asked for audio description" else "Ask for audio description", modifier = bm) { Engine.askForAd(info) }
+                    WebBtn("Play on…", modifier = bm) { castOpen = true }
                 }
             }
             if (j.s("tagline").isNotEmpty()) item {
@@ -1893,8 +1924,12 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
         "sight" -> "How you see the screen"; else -> "Settings"
     }
     Column(Modifier.fillMaxSize()) {
-        TopBar(head, openDrawer)
+        TopBar(head, openDrawer, heading = !Look.low)
         LazyColumn(contentPadding = PaddingValues(top = 6.dp, bottom = 190.dp)) {
+            if (Look.low) item {         // low vision: the page's name scrolls with it (as on the web page)
+                Text(head, color = EFg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 6.dp).semantics { heading() })
+            }
             when (section) {
                 "sight" -> {
                     item { Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { SightChoices(Engine.sight) { v -> if (v != Engine.sight) Engine.sightSave(mapOf("sight" to v), sightSaid(v)) } } }
@@ -1970,7 +2005,8 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
                         }
                     }
                     item { card("Account", "Signed in as $name", Ic.Person) { W.go(Page("settings", "account")) } }
-                    item { card("How you see the screen", sightName(Engine.sight), Ic.Eye) { W.go(Page("settings", "sight")) } }
+                    item { card("How you see the screen", sightName(Engine.sight) + if (Look.low) " · " + Engine.sOpt("size").replaceFirstChar { it.uppercase() } + " text · " +
+                        (SCREENS.firstOrNull { it.first == Engine.sOpt("screen") }?.second ?: "Dark") else "", Ic.Eye) { W.go(Page("settings", "sight")) } }
                     item { card("Playback", "Video quality ${Engine.qualityLabel()}", Ic.Play) { W.go(Page("settings", "playback")) } }
                     item { card("Play on", dev, Ic.Cast) { castOpen = true } }
                     if (Engine.devHelp.isNotEmpty()) item { Text(Engine.devHelp, color = ESub, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)) }

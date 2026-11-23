@@ -148,12 +148,18 @@ tapon Home
 shot 24_low_home 6
 adb shell input swipe 540 1900 540 700 600
 shot 25_low_home_more 3
-tapon "Screen: Dark"
+tapon "Press for light"
 shot 26_low_light 4
-tapon "Screen: Light"
+tapon "Press for yellow"
 shot 27_low_yellow 4
-tapon "Larger text"
-shot 28_low_largest 4
+open "kind=settings"
+sleep 3
+tapon "How you see the screen"
+sleep 2
+tapon "Larger"
+shot 28_low_larger 4
+open "kind=home"
+shot 28b_low_home_larger 5
 open "kind=item&id=m_magic&extra=Movie&title=Moonlit%20Magic%202"
 shot 29_low_movie 5
 open "kind=item&id=s_chase&extra=Series&title=The%20Great%20Chase"

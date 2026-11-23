@@ -76,6 +76,7 @@ class MainActivity : ComponentActivity() {
             "home", "search", "downloads", "movies" -> W.openTab(kind)
             "books" -> W.openTab("books", Page("books"))
             "favorites" -> W.openTab("home", Page("favorites"))
+            "settings" -> W.openTab("you", Page("settings"))
             else -> W.go(Page(kind, u.getQueryParameter("id") ?: "", u.getQueryParameter("title") ?: "", u.getQueryParameter("extra") ?: ""))
         }
     }

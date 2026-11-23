@@ -115,13 +115,13 @@ fun FilterChips(view: LibView, onChange: (LibView) -> Unit) {
 @Composable
 private fun FChip(text: String, on: Boolean, onClick: () -> Unit) {
     Row(
-        Modifier.height(if (Look.low) 56.dp else 40.dp).clip(RoundedCornerShape(20.dp)).background(if (on) (if (Look.low) EBtn2 else Color(0x292DD4BF)) else EBtn2)
-            .border(Look.line, if (on) EGreen else ELine, RoundedCornerShape(20.dp)).clickable(onClick = onClick)
+        Modifier.height(if (Look.low) 56.dp else 40.dp).clip(RoundedCornerShape(20.dp)).background(if (on) (if (Look.low) EMain else Color(0x292DD4BF)) else EBtn2)
+            .border(Look.line, if (on) (if (Look.low) EMain else EGreen) else ELine, RoundedCornerShape(20.dp)).clickable(onClick = onClick)
             .semantics { role = Role.Button; selected = on }.padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (on) Icon(Ic.Check, null, tint = EGreen, modifier = Modifier.size(16.dp).padding(end = 2.dp))
-        Text(text, color = EFg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = if (on) 4.dp else 0.dp))
+        if (on) Icon(Ic.Check, null, tint = if (Look.low) EInk else EGreen, modifier = Modifier.size(16.dp).padding(end = 2.dp))
+        Text(text, color = if (on && Look.low) EInk else EFg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = if (on) 4.dp else 0.dp))
     }
 }
 
