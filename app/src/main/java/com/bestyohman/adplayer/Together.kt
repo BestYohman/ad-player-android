@@ -147,10 +147,11 @@ fun InviteDialog() {
     val picked = remember(ppl) { mutableStateListOf<String>() }
     AlertDialog(
         onDismissRequest = { Engine.inviting = null },
-        title = { Text("Invite people to play together", modifier = Modifier.semantics { heading() }) },
+        title = { Text(if (Engine.isTv) "Send it to a phone" else "Invite people to play together", modifier = Modifier.semantics { heading() }) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("They see an invitation in AD Player (and a phone notification when one is set up). Only people who can sign in to the player are listed.",
+                Text((if (Engine.isTv) "It keeps playing here. Whoever you pick presses Join on their phone and it plays there too, in step - to step away, or to watch together from somewhere else. " else "") +
+                    "They see an invitation in AD Player (and a phone notification when one is set up). Only people who can sign in to the player are listed.",
                     fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp))
                 ppl.forEach { p ->
                     val n = p.s("name"); val on = n in picked
@@ -160,7 +161,7 @@ fun InviteDialog() {
                     ) {
                         Checkbox(checked = on, onCheckedChange = null)
                         Column(Modifier.padding(start = 10.dp)) {
-                            Text(n, fontWeight = FontWeight.Bold)
+                            Text(p.s("label").ifEmpty { n }, fontWeight = FontWeight.Bold)
                             Text((if (p.b("online")) "Using the app now" else "Not using the app right now") +
                                 (if (p.b("notify")) " - gets a phone notification" else ""), fontSize = 13.sp)
                         }

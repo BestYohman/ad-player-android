@@ -284,11 +284,35 @@ fun WatchApp(act: MainActivity) {
             val z = minOf(Look.zoom, 1.08f); val t = minOf(Look.textScale, 1.4f)
             androidx.compose.runtime.CompositionLocalProvider(
                 androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(dn.density * z, dn.fontScale * t / z)
-            ) { PlayerScreen(act); if (W.trk.isNotEmpty()) TrackSheet(W.trk) { W.trk = "" } }
+            ) {
+                androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.LocalIndication provides
+                    (if (Engine.isTv) TvFocusIndication else androidx.compose.foundation.LocalIndication.current)) {
+                    PlayerScreen(act); if (W.trk.isNotEmpty()) TrackSheet(W.trk) { W.trk = "" }
+                }
+            }
             return@CompositionLocalProvider
         }
-        if (showPlayer) { AudioScreen(act); return@CompositionLocalProvider }
-        Surface(Modifier.fillMaxSize(), color = EBg) {
+        if (showPlayer) {
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.LocalIndication provides
+                (if (Engine.isTv) TvFocusIndication else androidx.compose.foundation.LocalIndication.current)) { AudioScreen(act) }
+            return@CompositionLocalProvider
+        }
+        if (Engine.isTv) Surface(Modifier.fillMaxSize(), color = EBg) {
+            // a TV: the menu down the side, the page beside it (the remote's arrows move between them)
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.LocalIndication provides TvFocusIndication) {
+                Row(Modifier.fillMaxSize()) {
+                    TvRail()
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        val page = W.stack.last()
+                        key(page) { PageContent(page) {} }
+                        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().widthIn(max = 900.dp)) {
+                            if (W.toast.isNotEmpty()) Toast(W.toast)
+                            MiniPlayer()
+                        }
+                    }
+                }
+            }
+        } else Surface(Modifier.fillMaxSize(), color = EBg) {
             Box(Modifier.fillMaxSize()) {
                 val page = W.stack.last()
                 key(page) { PageContent(page) {} }
@@ -1362,7 +1386,7 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                     }
                     if (!ep) WebBtn(if (info.favorite) "Remove from favorites" else "Add to favorites",
                         label = (if (info.favorite) "Remove ${info.label} from favorites" else "Add ${info.label} to favorites"), modifier = bm) { Engine.toggleFavorite(info) }
-                    if (playable) {
+                    if (playable && !Engine.isTv) {
                         val saved = Offline.forItem(info.id)
                         WebBtn(if (saved.any { it.done }) "Downloaded" else if (saved.isNotEmpty()) "Downloading…" else "Download", modifier = bm) {
                             if (saved.isNotEmpty()) W.go(Page("downloads")) else dl = true

@@ -1,5 +1,9 @@
 package com.bestyohman.adplayer
 
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.focus.focusRequester
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -105,8 +109,29 @@ fun PlayerScreen(act: MainActivity) {
         }
     }
     val touch = { poke = System.currentTimeMillis() }
+    val keys = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(shown, locked) { if (!shown || locked) try { keys.requestFocus() } catch (e: Exception) { } }
     Box(
-        Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) {
+        Modifier.fillMaxSize().background(Color.Black)
+            .focusRequester(keys)
+            .onPreviewKeyEvent { e ->
+                if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val k = e.nativeKeyEvent.keyCode
+                if (shown && !locked) {                // the buttons are showing: the arrows move between them
+                    if (k == android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) { Engine.cmd("playpause"); touch(); true } else { touch(); false }
+                } else when (k) {
+                    android.view.KeyEvent.KEYCODE_DPAD_CENTER, android.view.KeyEvent.KEYCODE_ENTER, android.view.KeyEvent.KEYCODE_NUMPAD_ENTER,
+                    android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                        if (locked) { shown = true; touch() } else { Engine.cmd("playpause"); shown = true; touch() }; true
+                    }
+                    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { if (!locked) Engine.cmd(if (Engine.tg == null) "back10" else "back30"); true }
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { if (!locked) Engine.cmd("fwd30"); true }
+                    android.view.KeyEvent.KEYCODE_DPAD_UP, android.view.KeyEvent.KEYCODE_DPAD_DOWN, android.view.KeyEvent.KEYCODE_MENU -> { shown = true; touch(); true }
+                    else -> false
+                }
+            }
+            .focusable()
+            .pointerInput(Unit) {
             detectTapGestures(
                 onTap = { shown = !shown; touch() },
                 onDoubleTap = { o -> if (!locked) { Engine.cmd(if (o.x < size.width / 2) "back30" else "fwd30"); shown = true; touch() } }
@@ -181,7 +206,7 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
     val ep = info?.type == "Episode"
     val conf = androidx.compose.ui.platform.LocalConfiguration.current
     val land = conf.screenWidthDp > conf.screenHeightDp            // sideways: a lower, wider layout
-    if (!land) { WebControls(v, info, act, touch, openSheet, openDialog, lock, stats); return }
+    if (!land || Engine.isTv) { WebControls(v, info, act, touch, openSheet, openDialog, lock, stats); return }
     Box(
         Modifier.fillMaxSize().background(
             Brush.verticalGradient(0f to Color(0xB0000000), 0.25f to Color(0x30000000), 0.55f to Color(0x30000000), 1f to Color(0xD0000000))
@@ -264,7 +289,8 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
                 Btn(Ic.Settings, "Settings") { openDialog("settings") }
                 Btn(Ic.Rotate, "Turn sideways") { act.toggleLandscape(); touch() }
                 Btn(Ic.Chart, "Stats for nerds") { stats(); touch() }
-                if (Engine.tg != null) Btn(Ic.Group, "Invite people") { Engine.inviteOpen(); touch() }
+                if (Engine.tg != null) Btn(Ic.Group, if (Engine.isTv) "Send it to a phone" else "Invite people") { Engine.inviteOpen(); touch() }
+                else if (Engine.isTv) Btn(Ic.Group, "Continue on a phone") { Engine.tgTakeAlong(); touch() }
                 if (land) { Spacer(Modifier.weight(1f)); Tabs(info, ep, openSheet) }
             }
             if (!land) Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(26.dp)) {
@@ -305,10 +331,12 @@ private fun WebControls(v: Engine.Vid, info: Item?, act: MainActivity, touch: ()
         if (Engine.tg != null) TogetherBox(Color.White, Color(0xFFC9CED6), Color(0x66FFFFFF),
             Modifier.fillMaxWidth().padding(top = 96.dp, start = 12.dp, end = 12.dp).statusBarsPadding()
                 .clip(RoundedCornerShape(12.dp)).background(Color(0x99000000)).padding(horizontal = 12.dp, vertical = 8.dp))
+        val ppFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+        LaunchedEffect(Unit) { if (Engine.isTv) { delay(80); try { ppFocus.requestFocus() } catch (e: Exception) { } } }   // the remote starts on Play / Pause
         Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(36.dp)) {
             GlassRound(Ic.Replay, if (local) "Back 10 seconds" else "Back 30 seconds", 60.dp) { Engine.cmd(if (local) "back10" else "back30"); touch() }
             val paused = !exo.playWhenReady
-            GlassRound(if (paused) Ic.Play else Ic.Pause, if (paused) "Play" else "Pause", 84.dp) { Engine.cmd("playpause"); touch() }
+            GlassRound(if (paused) Ic.Play else Ic.Pause, if (paused) "Play" else "Pause", 84.dp, Modifier.focusRequester(ppFocus)) { Engine.cmd("playpause"); touch() }
             GlassRound(Ic.Forward, "Forward 30 seconds", 60.dp) { Engine.cmd("fwd30"); touch() }
         }
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
@@ -342,7 +370,8 @@ private fun WebControls(v: Engine.Vid, info: Item?, act: MainActivity, touch: ()
                 NamedBtn(Ic.Settings, "Settings") { openDialog("settings") }
                 NamedBtn(Ic.Info, "Info") { openSheet("info") }
                 NamedBtn(Ic.Chart, "Stats for nerds") { stats(); touch() }
-                if (Engine.tg != null) NamedBtn(Ic.Group, "Invite people") { Engine.inviteOpen(); touch() }
+                if (Engine.tg != null) NamedBtn(Ic.Group, if (Engine.isTv) "Send it to a phone" else "Invite people") { Engine.inviteOpen(); touch() }
+                else if (Engine.isTv) NamedBtn(Ic.Group, "Continue on a phone") { Engine.tgTakeAlong(); touch() }
                 if (info?.j?.optJSONArray("chapters").objs().isNotEmpty()) NamedBtn(Ic.ListIc, "Chapters") { openSheet("chapters") }
                 if (ep) NamedBtn(Ic.Next, "Up next") { openSheet("next") }
             }
@@ -352,9 +381,9 @@ private fun WebControls(v: Engine.Vid, info: Item?, act: MainActivity, touch: ()
 
 /** A round glass button over the picture (Back, Play / Pause, Forward), as on the web page. */
 @Composable
-private fun GlassRound(icon: ImageVector, label: String, size: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {
+private fun GlassRound(icon: ImageVector, label: String, size: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
-        Modifier.size(size).clip(CircleShape).background(Color(0x40FFFFFF)).clickable(onClick = onClick)
+        modifier.size(size).clip(CircleShape).background(Color(0x40FFFFFF)).clickable(onClick = onClick)
             .semantics { contentDescription = label; role = androidx.compose.ui.semantics.Role.Button },
         contentAlignment = Alignment.Center
     ) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(size * 0.55f)) }

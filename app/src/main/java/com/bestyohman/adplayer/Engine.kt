@@ -110,6 +110,10 @@ object Engine {
     var message by mutableStateOf("")
     var announcer: ((String) -> Unit)? = null
     var foreground = false
+    /** A Google TV / Android TV: the remote's arrows, a menu down the side, and "This TV" instead of "This phone". */
+    var isTv = false
+    val here: String get() = if (isTv) "This TV" else "This phone"
+    private val devName: String get() = if (isTv) "TV" else "phone"
     var tick by mutableStateOf(0)                 // changes every second, so "Now playing" stays up to date
     var offline by mutableStateOf(false)           // couldn't reach the PC: only what's downloaded
 
@@ -254,8 +258,8 @@ object Engine {
 
     suspend fun loadDevices(announce: Boolean) {
         val phones = mutableListOf<Dev>()
-        if (videoOK) phones.add(Dev("__video", "This phone - the video"))
-        phones.add(Dev("__local", "This phone - just the audio"))
+        if (videoOK) phones.add(Dev("__video", "$here - the video"))
+        phones.add(Dev("__local", "$here - just the audio"))
         var tvs = listOf<Dev>()
         var other = ""
         try {
@@ -1543,7 +1547,7 @@ object Engine {
         launchSafe {
             val pos = if (resume) it.resumeTicks / 1e7 else 0.0
             val d = Api.post("/api/play/together/start", mapOf("cid" to Prefs.cid, "kind" to "video", "item" to it.id,
-                "pos" to pos.toString(), "mode" to tgMode(), "title" to it.label, "invite" to ""))
+                "pos" to pos.toString(), "mode" to tgMode(), "title" to it.label, "invite" to "", "dev" to devName))
             if (d.err().isNotEmpty()) { say(d.err()); return@launchSafe }
             tgBegin(d)
             say("Ready to play ${d.s("title")} together. Choose who to invite. When they join it starts by itself - or press Play to start now.")
@@ -1561,7 +1565,7 @@ object Engine {
             var pos = at ?: if (resume && !b.b("finished")) max(0.0, b.d("position") - 2) else 0.0
             if (pos >= b.d("duration") - 2) pos = 0.0
             val d = Api.post("/api/play/together/start", mapOf("cid" to Prefs.cid, "kind" to "book", "item" to id,
-                "pos" to pos.toString(), "mode" to "audio", "title" to b.s("title"), "invite" to ""))
+                "pos" to pos.toString(), "mode" to "audio", "title" to b.s("title"), "invite" to "", "dev" to devName))
             if (d.err().isNotEmpty()) { say(d.err()); return@launchSafe }
             tgBegin(d)
             say("Ready to listen to ${d.s("title")} together. Choose who to invite. When they join it starts by itself - or press Play to start now.")
@@ -1575,7 +1579,7 @@ object Engine {
         stopPhone(true)
         say("Joining…")
         launchSafe {
-            val d = Api.post("/api/play/together/join", mapOf("cid" to Prefs.cid, "room" to room, "mode" to tgMode()))
+            val d = Api.post("/api/play/together/join", mapOf("cid" to Prefs.cid, "room" to room, "mode" to tgMode(), "dev" to devName))
             if (d.err().isNotEmpty()) { say(d.err()); pollInvites(); return@launchSafe }
             tgBegin(d)
             say("Joined ${d.s("by")}: ${d.s("title")}. " + when {
@@ -1594,7 +1598,11 @@ object Engine {
         val t = tg ?: return@launchSafe
         val ppl = Api.get("/api/play/people").optJSONArray("people").objs()
         val have = t.last.optJSONArray("people").objs().filter { it.s("state") != "declined" }.map { it.s("name") }.toSet()
-        val avail = ppl.filter { it.s("name") !in have }
+        // on a TV: yourself too (your phone, to take it with you)
+        val mine = me?.s("name").orEmpty()
+        val self = if (isTv && mine.isNotEmpty() && "$mine's phone" !in have)
+            listOf(JSONObject().put("name", mine).put("label", "You - on your phone").put("online", true).put("notify", false)) else emptyList()
+        val avail = self + ppl.filter { it.s("name") !in have }
         if (avail.isEmpty()) { if (!first) say(if (ppl.isEmpty()) "Nobody else can sign in to the player." else "Everyone is already invited or playing."); return@launchSafe }
         if (tg === t) inviting = avail
     }
@@ -1609,9 +1617,27 @@ object Engine {
         }
     }
 
-    private fun tgBegin(d: JSONObject) {
+    /** On the TV, while it plays: playing together starts without stopping (everyone watching carries on), and the
+     *  phone of whoever steps away - or anyone else - is invited to join it in step. */
+    fun tgTakeAlong() {
+        val v = vd ?: return
+        if (tg != null) { inviteOpen(); return }
+        if (!isPhone || mode != Mode.VIDEO) { say("This works for what plays on this TV."); return }
+        launchSafe {
+            val d = Api.post("/api/play/together/start", mapOf("cid" to Prefs.cid, "kind" to "video", "item" to v.item,
+                "pos" to (exo.currentPosition / 1000.0).toString(), "mode" to "video", "title" to v.title, "invite" to "",
+                "run" to "1", "dev" to devName))
+            if (d.err().isNotEmpty()) { say(d.err()); return@launchSafe }
+            tgBegin(d, adopt = true)
+            say("Playing together - it carries on here. Choose whose phone to send it to.")
+            inviteOpen(first = true)
+        }
+    }
+
+    private fun tgBegin(d: JSONObject, adopt: Boolean = false) {
         val t = Tg(d.s("id"))
         t.kind = d.s("kind"); t.role = d.s("role"); t.msgSeq = d.i("msg_seq"); t.last = d; t.jseq = d.i("jseq")
+        if (adopt) { t.iseq = d.i("iseq"); t.iseqLoaded = t.iseq; t.readyIseq = t.iseq }      // what plays here already is it
         skips = 0; stalls = 0
         tg = t
         TogetherNote.cancelAll(); invites = emptyList()
@@ -1970,6 +1996,7 @@ object Engine {
     fun inviteLine(r: JSONObject): String {
         val w = (if (r.s("kind") == "book") "listen to " else "watch ") + r.s("title")
         val others = r.optJSONArray("names").strs().filter { it != r.s("by") }
+        if (r.b("self")) return "Take ${r.s("title")} with you: Join plays it here, in step with the TV."
         return (if (r.b("invited")) "${r.s("invited_by").ifEmpty { r.s("by") }} invites you to $w together"
                 else "${r.s("by")} is playing ${r.s("title")} together") + (if (others.isNotEmpty()) " (with ${others.joinToString(", ")})." else ".")
     }
