@@ -105,6 +105,10 @@ def route(path, q):
         if k == "library": return {"items": MOVIES * 4 if q.get("parent") == "v1" else SERIES * 4}
         if k == "favorites": return {"items": SERIES[:1] + MOVIES[:2]}
         if k == "search": return {"items": SERIES[:1] + MOVIES[:2] + EPS[:1]}
+        if k == "continue": return {"items": [NINE, ENC, EPS[1]]}                      # the web page's home rows
+        if k == "recent": return {"items": [EPS[0], MOVIES[0], EPS[2]]}
+        if k == "shows": return {"items": SERIES * 3}
+        if k == "movies": return {"items": MOVIES * 3}
         return {"items": []}
     if path == "/api/play/books/list":
         k = q.get("kind", "")
