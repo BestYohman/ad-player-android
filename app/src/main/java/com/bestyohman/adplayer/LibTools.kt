@@ -115,13 +115,13 @@ fun FilterChips(view: LibView, onChange: (LibView) -> Unit) {
 @Composable
 private fun FChip(text: String, on: Boolean, onClick: () -> Unit) {
     Row(
-        Modifier.height(40.dp).clip(RoundedCornerShape(20.dp)).background(if (on) Color(0x292DD4BF) else EBtn2)
-            .border(1.dp, if (on) EGreen else ELine, RoundedCornerShape(20.dp)).clickable(onClick = onClick)
+        Modifier.height(40.dp).clip(RoundedCornerShape(20.dp)).background(if (on) (if (Look.low) EBtn2 else Color(0x292DD4BF)) else EBtn2)
+            .border(Look.line, if (on) EGreen else ELine, RoundedCornerShape(20.dp)).clickable(onClick = onClick)
             .semantics { role = Role.Button; selected = on }.padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (on) Icon(Ic.Check, null, tint = EGreen, modifier = Modifier.size(16.dp).padding(end = 2.dp))
-        Text(text, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = if (on) 4.dp else 0.dp))
+        Text(text, color = EFg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = if (on) 4.dp else 0.dp))
     }
 }
 
@@ -133,14 +133,14 @@ fun SortFilterButton(lib: String, view: LibView, onChange: (LibView) -> Unit) {
     val way = LibSorts.way(view)
     Box {
         Box(
-            Modifier.size(44.dp).clip(RoundedCornerShape(22.dp)).background(if (open) Color.White else EBtn2).border(1.dp, ELine, RoundedCornerShape(22.dp))
+            Modifier.size(44.dp).clip(RoundedCornerShape(22.dp)).background(if (open) EMain else EBtn2).border(Look.line, ELine, RoundedCornerShape(22.dp))
                 .clickable { open = true }.semantics {
                     role = Role.Button
                     contentDescription = "Sort and filter: ${LibSorts.name(view.sort)}" + (if (way.isNotEmpty()) ", $way" else "") +
                         (if (view.filtersOn > 0) ", ${view.filtersOn} filters on" else "")
                 },
             contentAlignment = Alignment.Center
-        ) { Icon(Ic.Filter, null, tint = if (open) EInk else Color.White, modifier = Modifier.size(22.dp)) }
+        ) { Icon(Ic.Filter, null, tint = if (open) EInk else EFg, modifier = Modifier.size(22.dp)) }
         if (view.filtersOn > 1 || (view.filtersOn == 1 && !view.ad) || view.sort != "title")
             Box(Modifier.align(Alignment.TopEnd).padding(5.dp).size(10.dp).clip(RoundedCornerShape(5.dp)).background(EGreen))
     }
@@ -150,7 +150,7 @@ fun SortFilterButton(lib: String, view: LibView, onChange: (LibView) -> Unit) {
         ModalBottomSheet(onDismissRequest = { open = false }, sheetState = st, containerColor = ECard) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Sort and filter", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f).semantics { heading() })
+                    Text("Sort and filter", color = EFg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f).semantics { heading() })
                     if (view.filtersOn > 0 || view.sort != "title") TextButton(onClick = { onChange(LibView(ad = false)) }) { Text("Clear all", color = EGreen) }
                 }
                 Choice("Sort by", LibSorts.all.map { it.first to it.second }, view.sort) { k ->
@@ -181,7 +181,7 @@ private fun Choice(label: String, options: List<Pair<String, String>>, value: St
     var open by remember { mutableStateOf(false) }
     val shown = options.firstOrNull { it.first == value }?.second ?: value.ifEmpty { "Any" }
     Column(Modifier.padding(vertical = 8.dp)) {
-        Text(label, color = Color.White, fontSize = 17.sp, modifier = Modifier.padding(bottom = 6.dp))
+        Text(label, color = EFg, fontSize = 17.sp, modifier = Modifier.padding(bottom = 6.dp))
         Box {
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(FieldBg).border(1.dp, ELine, RoundedCornerShape(12.dp)).clickable { open = true }
@@ -189,8 +189,8 @@ private fun Choice(label: String, options: List<Pair<String, String>>, value: St
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(shown, color = Color.White, fontSize = 18.sp, modifier = Modifier.weight(1f))
-                Icon(Ic.ChevronDown, null, tint = Color.White)
+                Text(shown, color = EFg, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                Icon(Ic.ChevronDown, null, tint = EFg)
             }
             DropdownMenu(open, onDismissRequest = { open = false }, modifier = Modifier.heightIn(max = 420.dp)) {
                 options.forEach { (k, name) ->
@@ -210,7 +210,7 @@ private fun Toggle(label: String, on: Boolean, onSet: (Boolean) -> Unit) {
         Modifier.fillMaxWidth().toggleable(value = on, role = Role.Switch, onValueChange = onSet).padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, color = Color.White, fontSize = 17.sp, modifier = Modifier.weight(1f))
+        Text(label, color = EFg, fontSize = 17.sp, modifier = Modifier.weight(1f))
         Switch(on, onCheckedChange = null, colors = SwitchDefaults.colors(checkedTrackColor = EGreen))
     }
 }

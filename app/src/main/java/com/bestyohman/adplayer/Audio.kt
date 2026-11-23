@@ -121,15 +121,15 @@ fun AudioScreen(act: MainActivity) {
     }
     val paused = !exo.playWhenReady
 
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(tint, Color(0xFF151515))))) {
+    Box(Modifier.fillMaxSize().background(if (Look.low) Brush.verticalGradient(listOf(EBg, EBg)) else Brush.verticalGradient(listOf(tint, Color(0xFF151515))))) {
         Column(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 22.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { W.player = false }) { Icon(Ic.ChevronDown, "Close the player - it keeps playing", tint = Color.White, modifier = Modifier.size(34.dp)) }
+                IconButton(onClick = { W.player = false }) { Icon(Ic.ChevronDown, "Close the player - it keeps playing", tint = EFg, modifier = Modifier.size(34.dp)) }
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = { dialog = "cast" }) { Icon(Ic.Cast, "Play on", tint = Color.White) }
+                IconButton(onClick = { dialog = "cast" }) { Icon(Ic.Cast, "Play on", tint = EFg) }
             }
             Spacer(Modifier.weight(0.4f))
             Box(Modifier.widthIn(max = 420.dp).fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp)).background(Color(0x22FFFFFF))) {
@@ -140,13 +140,13 @@ fun AudioScreen(act: MainActivity) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.size(40.dp))
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                    Text(title, color = EFg, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
                         maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    if (sub.isNotEmpty()) Text(sub, color = Color(0xFFBDBDB0), fontSize = 18.sp, textAlign = TextAlign.Center, maxLines = 2,
+                    if (sub.isNotEmpty()) Text(sub, color = ESub, fontSize = 18.sp, textAlign = TextAlign.Center, maxLines = 2,
                         overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
                 }
                 Box {
-                    IconButton(onClick = { menu = true }, modifier = Modifier.size(40.dp)) { Icon(Ic.More, "More", tint = Color.White) }
+                    IconButton(onClick = { menu = true }, modifier = Modifier.size(40.dp)) { Icon(Ic.More, "More", tint = EFg) }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         if (book) {
                             DropdownMenuItem(text = { Text("Start from the beginning") }, leadingIcon = { Icon(Ic.Restart, null) },
@@ -169,45 +169,45 @@ fun AudioScreen(act: MainActivity) {
                 value = inSeg.toFloat(), valueRange = 0f..segLen.toFloat(),
                 onValueChange = { dragging = true; dragTo = it },
                 onValueChangeFinished = { Engine.seekTo(segStart + dragTo); dragging = false },
-                colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color(0x55FFFFFF)),
-                thumb = { Box(Modifier.size(14.dp).background(Color.White, CircleShape)) },
+                colors = SliderDefaults.colors(thumbColor = EFg, activeTrackColor = EFg, inactiveTrackColor = Color(0x55FFFFFF)),
+                thumb = { Box(Modifier.size(14.dp).background(EFg, CircleShape)) },
                 track = { s ->
                     val f = ((s.value - s.valueRange.start) / (s.valueRange.endInclusive - s.valueRange.start).coerceAtLeast(0.001f)).coerceIn(0f, 1f)
                     Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color(0x55FFFFFF))) {
-                        Box(Modifier.fillMaxWidth(f).fillMaxHeight().background(Color.White))
+                        Box(Modifier.fillMaxWidth(f).fillMaxHeight().background(EFg))
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(30.dp).semantics { contentDescription = "Position ${clock(inSeg)} of ${clock(segLen)}" }
             )
             Row(Modifier.fillMaxWidth()) {
-                Text(clock(inSeg), color = Color(0xFFBDBDB0), fontSize = 16.sp)
+                Text(clock(inSeg), color = ESub, fontSize = 16.sp)
                 Text(
                     when {
                         ci >= 0 -> "Chapter ${ci + 1} of ${chs.size}"
                         book -> "${clock(total - pos)} left"
                         else -> ""
-                    }, color = Color(0xFFBDBDB0), fontSize = 15.sp, textAlign = TextAlign.Center, modifier = Modifier.weight(1f)
+                    }, color = ESub, fontSize = 15.sp, textAlign = TextAlign.Center, modifier = Modifier.weight(1f)
                 )
-                Text("-" + clock(segLen - inSeg), color = Color(0xFFBDBDB0), fontSize = 16.sp)
+                Text("-" + clock(segLen - inSeg), color = ESub, fontSize = 16.sp)
             }
             if (book && ci >= 0) Text("${clock(total - pos)} left in the book" + (if (b!!.sleep != "off") " · sleep timer on" else ""),
-                color = Color(0xFF9E9E92), fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
-            PlayStateLine(paused, Modifier.padding(top = 2.dp), color = Color(0xFF9E9E92), size = 13.sp)
+                color = ESub, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+            PlayStateLine(paused, Modifier.padding(top = 2.dp), color = ESub, size = 13.sp)
             Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 Small(Ic.Prev, if (book) "Previous chapter" else "Previous", enabled = book) { Engine.cmd("prev") }
                 Small(Ic.Replay, "Back 30 seconds") { Engine.cmd("back30") }
                 IconButton(onClick = { Engine.cmd("playpause") }, modifier = Modifier.size(64.dp)) {
-                    Icon(if (paused) Ic.Play else Ic.Pause, if (paused) "Play" else "Pause", tint = Color.White, modifier = Modifier.size(52.dp))
+                    Icon(if (paused) Ic.Play else Ic.Pause, if (paused) "Play" else "Pause", tint = EFg, modifier = Modifier.size(52.dp))
                 }
                 Small(Ic.Stop, if (Engine.tg != null) "Stop for everyone" else "Stop") { Engine.stopPressed { W.player = false } }
                 Small(Ic.Forward, "Forward 30 seconds") { Engine.cmd("fwd30") }
                 Small(Ic.Next, if (book) "Next chapter" else "Next episode", enabled = book || (l?.hasNext == true)) { Engine.cmd("next") }
             }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Ic.VolumeLow, null, tint = Color(0xFFBDBDB0), modifier = Modifier.size(24.dp))
+                Icon(Ic.VolumeLow, null, tint = ESub, modifier = Modifier.size(24.dp))
                 Slider(
                     value = exo.volume, onValueChange = { exo.volume = it }, valueRange = 0f..1f,
-                    thumb = { Box(Modifier.size(12.dp).background(Color.White, CircleShape)) },
+                    thumb = { Box(Modifier.size(12.dp).background(EFg, CircleShape)) },
                     track = { s ->
                         Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color(0x55FFFFFF))) {
                             Box(Modifier.fillMaxWidth(s.value.coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFFCFCFC4)))
@@ -215,13 +215,13 @@ fun AudioScreen(act: MainActivity) {
                     },
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp).semantics { contentDescription = "Volume" }
                 )
-                Icon(Ic.VolumeOn, null, tint = Color(0xFFBDBDB0), modifier = Modifier.size(26.dp))
+                Icon(Ic.VolumeOn, null, tint = ESub, modifier = Modifier.size(26.dp))
             }
             Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 14.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                 Small(Ic.ListIc, "Chapters", enabled = chs.isNotEmpty()) { sheet = true }
                 if (book) Small(Ic.Bookmark, "Bookmarks") { bmSheet = true }
                 Small(Ic.Speed, "Speed") { dialog = "speed" }
-                Small(Ic.Bedtime, "Sleep timer", tint = if (b?.sleep != null && b.sleep != "off") EGreen else Color.White, enabled = book) { dialog = "sleep" }
+                Small(Ic.Bedtime, "Sleep timer", tint = if (b?.sleep != null && b.sleep != "off") EGreen else EFg, enabled = book) { dialog = "sleep" }
                 Small(Ic.Settings, "Settings") { dialog = "settings" }
             }
         }
@@ -229,7 +229,7 @@ fun AudioScreen(act: MainActivity) {
     if (bmSheet && b != null) BookmarkSheet(b.id, b.title) { bmSheet = false }
     if (sheet && b != null) {
         val st = rememberModalBottomSheetState(skipPartiallyExpanded = false)
-        ModalBottomSheet(onDismissRequest = { sheet = false }, sheetState = st, containerColor = Color(0xFF1C1C1A)) {
+        ModalBottomSheet(onDismissRequest = { sheet = false }, sheetState = st, containerColor = ECard) {
             LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
                 itemsIndexed(b.chapters) { i, c ->
                     Row(
@@ -238,7 +238,7 @@ fun AudioScreen(act: MainActivity) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("${i + 1}", color = if (i == ci) EGreen else ESub, fontSize = 15.sp, modifier = Modifier.widthIn(min = 34.dp))
-                        Text(c.title, color = if (i == ci) EGreen else Color.White, fontSize = 17.sp, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(c.title, color = if (i == ci) EGreen else EFg, fontSize = 17.sp, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(clock(c.start), color = ESub, fontSize = 14.sp)
                     }
                 }
@@ -270,7 +270,7 @@ fun AudioScreen(act: MainActivity) {
 }
 
 @Composable
-private fun Small(icon: ImageVector, label: String, enabled: Boolean = true, tint: Color = Color.White, onTap: () -> Unit) {
+private fun Small(icon: ImageVector, label: String, enabled: Boolean = true, tint: Color = EFg, onTap: () -> Unit) {
     IconButton(onClick = onTap, enabled = enabled, modifier = Modifier.size(52.dp)) {
         Icon(icon, label, tint = if (enabled) tint else Color(0x55FFFFFF), modifier = Modifier.size(32.dp))
     }
@@ -284,11 +284,11 @@ fun BookmarkSheet(bookId: String, title: String, close: () -> Unit) {
     val st = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var renaming by remember { mutableStateOf<JSONObject?>(null) }
     val here = Engine.bookHere()?.takeIf { it.first == bookId }
-    ModalBottomSheet(onDismissRequest = close, sheetState = st, containerColor = Color(0xFF1C1C1A)) {
+    ModalBottomSheet(onDismissRequest = close, sheetState = st, containerColor = ECard) {
         LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
             item {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Bookmarks", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text("Bookmarks", color = EFg, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                     if (here != null) WhitePill("Add here", Ic.Bookmark, Modifier.height(44.dp)) { Engine.addBookmark() }
                 }
             }
@@ -306,12 +306,12 @@ fun BookmarkSheet(bookId: String, title: String, close: () -> Unit) {
                 ) {
                     Icon(Ic.Bookmark, null, tint = EGreen, modifier = Modifier.size(22.dp))
                     Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
-                        Text(m.s("title"), color = Color.White, fontSize = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(m.s("title"), color = EFg, fontSize = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(listOf(m.s("at"), m.s("chapter").takeIf { !m.s("title").contains(it) } ?: "").filter { it.isNotEmpty() }.joinToString(" · "),
                             color = ESub, fontSize = 14.sp)
                     }
                     Box {
-                        IconButton(onClick = { menu = true }) { Icon(Ic.More, "More for the bookmark ${m.s("title")}", tint = Color.White) }
+                        IconButton(onClick = { menu = true }) { Icon(Ic.More, "More for the bookmark ${m.s("title")}", tint = EFg) }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; renaming = m })
                             DropdownMenuItem(text = { Text("Remove") }, onClick = { menu = false; Engine.removeBookmark(bookId, m.d("time")) })

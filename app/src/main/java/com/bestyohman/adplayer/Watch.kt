@@ -1,5 +1,9 @@
 package com.bestyohman.adplayer
 
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -91,6 +95,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -129,14 +134,31 @@ import java.io.File
 // list in Ui.kt, made for TalkBack.
 // ======================================================================================================
 
-// The web page's full-vision colours (AD Player web page, body.sight-full)
-val EBg = Color(0xFF0B0D11)
-val ECard = Color(0xFF14171D)
-val EGreen = Color(0xFF2DD4BF)          // the accent (teal on the web page)
-val ESub = Color(0xFFA3ABB8)
-val ELine = Color(0xFF2B313C)
-val EBtn2 = Color(0xFF1D212A)
-val EInk = Color(0xFF0B0D11)            // dark words on white or teal
+// The web page's colours: full vision (body.sight-full), or low vision's three screens - dark, light, yellow on black
+// (body.sight-low.ls-dark / ls-light / ls-yellow). They follow how she sees the screen, so everything changes at once.
+object Look {
+    val low: Boolean get() = Engine.sight == "low"
+    private val scr: String get() = Engine.sOpt("screen")
+    fun pick(full: Long, dark: Long, light: Long, yellow: Long): Color =
+        Color(if (!low) full else when (scr) { "light" -> light; "yellow" -> yellow; else -> dark })
+    /** Lines round buttons and cards: thin, or 3 wide for low vision. */
+    val line: Dp get() = if (low) 3.dp else 1.dp
+    /** Text size for low vision (as on the web page: normal 22, large 26, larger 30, largest 36 against 17). */
+    val textScale: Float get() = if (!low) 1f else when (Engine.sOpt("size")) { "normal" -> 1.3f; "larger" -> 1.75f; "largest" -> 2.1f; else -> 1.5f }
+    /** Everything else a little bigger too (buttons, posters), so fewer things fit on a line. */
+    val zoom: Float get() = if (!low) 1f else when (Engine.sOpt("size")) { "normal" -> 1.0f; "larger" -> 1.16f; "largest" -> 1.24f; else -> 1.08f }
+    val posters: Boolean get() = !low || Engine.sOn("posters")
+    val focusRing: Boolean get() = low && Engine.sOn("focus")
+}
+val EBg: Color get() = Look.pick(0xFF0B0D11, 0xFF000000, 0xFFFFFFFF, 0xFF000000)
+val EFg: Color get() = Look.pick(0xFFFFFFFF, 0xFFFFFFFF, 0xFF000000, 0xFFFFD60A)
+val ECard: Color get() = Look.pick(0xFF14171D, 0xFF0A0A0A, 0xFFFFFFFF, 0xFF000000)
+val EGreen: Color get() = Look.pick(0xFF2DD4BF, 0xFFFFD60A, 0xFF0033A0, 0xFFFFFFFF)     // the accent (teal; low vision: its button colour)
+val ESub: Color get() = Look.pick(0xFFA3ABB8, 0xFFFFFFFF, 0xFF000000, 0xFFFFD60A)
+val ELine: Color get() = Look.pick(0xFF2B313C, 0xFFFFFFFF, 0xFF000000, 0xFFFFD60A)
+val EBtn2: Color get() = Look.pick(0xFF1D212A, 0xFF141414, 0xFFF2F2F2, 0xFF1A1A00)
+val EMain: Color get() = Look.pick(0xFFFFFFFF, 0xFFFFD60A, 0xFF0033A0, 0xFFFFFFFF)      // the main button (white; low vision: its button colour)
+val EInk: Color get() = Look.pick(0xFF0B0D11, 0xFF000000, 0xFFFFFFFF, 0xFF000000)       // words on the main button or the accent
 val ERed = Color(0xFFE53935)
 
 /** A page in the watch app. */
@@ -218,7 +240,8 @@ fun WatchApp(act: MainActivity) {
     val view = androidx.compose.ui.platform.LocalView.current
     SideEffect {
         WindowCompat.getInsetsController(act.window, view).apply {
-            isAppearanceLightStatusBars = false; isAppearanceLightNavigationBars = false
+            val light = Look.low && Engine.sOpt("screen") == "light"
+            isAppearanceLightStatusBars = light; isAppearanceLightNavigationBars = light
         }
     }
     MaterialTheme(
@@ -241,7 +264,11 @@ fun WatchApp(act: MainActivity) {
             if (Engine.message.isNotEmpty()) { W.toast = Engine.message; val n = ++W.toastSeq; delay(3500); if (W.toastSeq == n) W.toast = "" }
         }
         BackHandler(enabled = W.player || W.stack.size > 1 || W.tab != "home") { W.back() }
-        if (showPlayer) { if (video) PlayerScreen(act) else AudioScreen(act); return@MaterialTheme }
+        val dn = androidx.compose.ui.platform.LocalDensity.current
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(dn.density * Look.zoom, dn.fontScale * Look.textScale / Look.zoom)
+        ) {
+        if (showPlayer) { if (video) PlayerScreen(act) else AudioScreen(act); return@CompositionLocalProvider }
         Surface(Modifier.fillMaxSize(), color = EBg) {
             Box(Modifier.fillMaxSize()) {
                 val page = W.stack.last()
@@ -254,6 +281,7 @@ fun WatchApp(act: MainActivity) {
             }
         }
         if (W.trk.isNotEmpty()) TrackSheet(W.trk) { W.trk = "" }
+        }
     }
 }
 
@@ -295,25 +323,53 @@ private fun TopBar(title: String?, openDrawer: () -> Unit, solid: Boolean = true
         Box(Modifier.fillMaxWidth().then(if (solid) Modifier.background(EBg) else Modifier).statusBarsPadding().padding(start = 10.dp, end = 10.dp, top = 8.dp)) {
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 60.dp).clip(RoundedCornerShape(20.dp))
-                    .background(if (solid) Color(0xF212151C) else Color(0x5C12151C))
-                    .border(1.dp, Color(0x17FFFFFF), RoundedCornerShape(20.dp)).padding(start = 12.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+                    .background(if (Look.low) EBg else if (solid) Color(0xF212151C) else Color(0x5C12151C))
+                    .border(Look.line, if (Look.low) ELine else Color(0x17FFFFFF), RoundedCornerShape(20.dp)).padding(start = 12.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (W.stack.size > 1) { GlassButton(Ic.Back, "Back") { W.back() }; Spacer(Modifier.width(8.dp)) }
                 LogoMark()
-                Text("AD Player", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 19.sp, maxLines = 1,
+                Text("AD Player", color = EFg, fontWeight = FontWeight.ExtraBold, fontSize = 19.sp, maxLines = 1,
                     modifier = Modifier.weight(1f).padding(start = 10.dp).semantics { heading() })
                 GlassButton(Ic.Search, "Search") { if (W.stack.last().kind != "search") W.go(Page("search")) }
                 Spacer(Modifier.width(8.dp))
                 GlassButton(Ic.Cast, "Play on: " + (Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "choose"), wide = true) { castOpen = true }
             }
         }
+        if (Look.low) LowTools()
         if (heading && solid && !title.isNullOrEmpty()) Text(
-            title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,
+            title, color = EFg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,
             modifier = Modifier.fillMaxWidth().background(EBg).padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp).semantics { heading() }
         )
     }
     if (castOpen) PlayOnDialog { castOpen = false }
+}
+
+/** Low vision: smaller text, larger text and the screen's colours, under the bar at the top (as on the web page). */
+@Composable
+private fun LowTools() {
+    val sizes = listOf("normal" to "Normal", "large" to "Large", "larger" to "Larger", "largest" to "Largest")
+    val screens = listOf("dark" to "Dark", "light" to "Light", "yellow" to "Yellow on black")
+    val si = sizes.indexOfFirst { it.first == Engine.sOpt("size") }.coerceAtLeast(0)
+    val sc = screens.indexOfFirst { it.first == Engine.sOpt("screen") }.coerceAtLeast(0)
+    Row(Modifier.fillMaxWidth().background(EBg).padding(start = 10.dp, end = 10.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        WebBtn("A\u2212", label = "Smaller text") {
+            if (si == 0) Engine.say("Text size is already the smallest (normal).") else Engine.sightSave(mapOf("size" to sizes[si - 1].first), "Text size: ${sizes[si - 1].second.lowercase()}.")
+        }
+        WebBtn("A+", label = "Larger text") {
+            if (si >= sizes.size - 1) Engine.say("Text size is already the largest.") else Engine.sightSave(mapOf("size" to sizes[si + 1].first), "Text size: ${sizes[si + 1].second.lowercase()}.")
+        }
+        val n = screens[(sc + 1) % screens.size]
+        WebBtn("Screen: ${screens[sc].second}", modifier = Modifier.weight(1f)) { Engine.sightSave(mapOf("screen" to n.first), "Screen: ${n.second.lowercase()}.") }
+    }
+}
+
+/** A thick outline on what has the focus (a keyboard or switch access), low vision's "Extra-thick outline" setting. */
+@Composable
+fun Modifier.focusRing(shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(14.dp)): Modifier {
+    if (!Look.focusRing) return this
+    var f by remember { mutableStateOf(false) }
+    return this.onFocusChanged { f = it.isFocused }.then(if (f) Modifier.border(6.dp, EGreen, shape) else Modifier)
 }
 
 /** The web page's logo: headphones on a teal tile. */
@@ -323,18 +379,20 @@ fun LogoMark(size: Dp = 40.dp) {
         Modifier.size(size).clip(RoundedCornerShape(12.dp))
             .background(Brush.linearGradient(listOf(Color(0xFF5EEAD4), Color(0xFF2DD4BF), Color(0xFF0F9E8E)))),
         contentAlignment = Alignment.Center
-    ) { Icon(Ic.Headphones, null, tint = EInk, modifier = Modifier.size(size * 0.62f)) }
+    ) { Icon(Ic.Headphones, null, tint = Color(0xFF0B0D11), modifier = Modifier.size(size * 0.62f)) }
 }
 
 /** A round glass button in the top bar (Search, Play on, Back). */
 @Composable
 fun GlassButton(icon: ImageVector, label: String, wide: Boolean = false, onClick: () -> Unit) {
     Box(
-        Modifier.height(44.dp).width(if (wide) 54.dp else 44.dp).clip(RoundedCornerShape(if (wide) 22.dp else 12.dp))
-            .background(Color(0x12FFFFFF)).border(1.dp, Color(0x14FFFFFF), RoundedCornerShape(if (wide) 22.dp else 12.dp))
+        Modifier.height(if (Look.low) 52.dp else 44.dp).width(if (wide) 58.dp else if (Look.low) 52.dp else 44.dp).focusRing()
+            .clip(RoundedCornerShape(if (wide) 26.dp else 12.dp))
+            .background(if (Look.low) EBtn2 else Color(0x12FFFFFF))
+            .border(Look.line, if (Look.low) ELine else Color(0x14FFFFFF), RoundedCornerShape(if (wide) 26.dp else 12.dp))
             .clickable(onClick = onClick).semantics { contentDescription = label; role = Role.Button },
         contentAlignment = Alignment.Center
-    ) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(22.dp)) }
+    ) { Icon(icon, null, tint = EFg, modifier = Modifier.size(22.dp)) }
 }
 
 @Composable
@@ -348,8 +406,8 @@ private fun BottomNav() {
     if (W.player) return
     Box(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, bottom = 10.dp, top = 4.dp), contentAlignment = Alignment.Center) {
         Row(
-            Modifier.widthIn(max = 560.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Color(0xE612151C))
-                .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(24.dp)).padding(6.dp),
+            Modifier.widthIn(max = 560.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(if (Look.low) EBg else Color(0xE612151C))
+                .border(Look.line, if (Look.low) ELine else Color(0x1AFFFFFF), RoundedCornerShape(24.dp)).padding(6.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             listOf(
@@ -359,7 +417,7 @@ private fun BottomNav() {
                 val on = W.tab == k
                 Column(
                     Modifier.weight(1f).heightIn(min = 52.dp).clip(RoundedCornerShape(18.dp))
-                        .background(if (on) Color(0x242DD4BF) else Color.Transparent)
+                        .background(if (on) (if (Look.low) EMain else Color(0x242DD4BF)) else Color.Transparent)
                         .clickable {
                             when (k) {
                                 "shows" -> W.openTab(k, Page("libtab", "tvshows"))
@@ -372,8 +430,9 @@ private fun BottomNav() {
                         .semantics { contentDescription = l + if (on) ", selected" else ""; role = Role.Tab },
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
                 ) {
-                    Icon(ic, null, tint = if (on) EGreen else ESub, modifier = Modifier.size(24.dp))
-                    Text(l, color = if (on) EGreen else ESub, fontSize = 12.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium,
+                    val c = if (Look.low) (if (on) EInk else EFg) else if (on) EGreen else ESub
+                    Icon(ic, null, tint = c, modifier = Modifier.size(24.dp))
+                    Text(l, color = c, fontSize = 12.sp, fontWeight = if (on || Look.low) FontWeight.Bold else FontWeight.Medium, maxLines = 1,
                         modifier = Modifier.padding(top = 2.dp))
                 }
             }
@@ -407,7 +466,7 @@ private fun MiniPlayer() {
     val local = Engine.mode != Engine.Mode.NONE && Engine.tg == null
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Column(
         Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp).clip(RoundedCornerShape(20.dp))
-            .background(Color(0xF012151C)).border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(20.dp))
+            .background(if (Look.low) EBtn2 else Color(0xF012151C)).border(Look.line, if (Look.low) ELine else Color(0x1AFFFFFF), RoundedCornerShape(20.dp))
     ) {
         Row(
             Modifier.fillMaxWidth().clickable(onClick = open).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }
@@ -418,7 +477,7 @@ private fun MiniPlayer() {
                 if (pic.isNotEmpty()) AsyncImage(picUrl(pic, 160), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(title, color = EFg, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Text(where, color = ESub, fontSize = 13.sp, maxLines = 1)
             }
         }
@@ -426,7 +485,7 @@ private fun MiniPlayer() {
             MiniBtn(Ic.Stop, if (Engine.tg != null) "Stop for everyone" else "Stop") { Engine.stopPressed() }
             MiniBtn(Ic.Replay, if (local) "Back 10 seconds" else "Back 30 seconds") { Engine.cmd(if (local) "back10" else "back30") }
             Box(
-                Modifier.size(52.dp).clip(CircleShape).background(Color.White).clickable { Engine.cmd("playpause") }
+                Modifier.size(52.dp).clip(CircleShape).background(EMain).clickable { Engine.cmd("playpause") }
                     .semantics { contentDescription = if (st.paused) "Play" else "Pause"; role = Role.Button },
                 contentAlignment = Alignment.Center
             ) { Icon(if (st.paused) Ic.Play else Ic.Pause, null, tint = EInk, modifier = Modifier.size(30.dp)) }
@@ -475,7 +534,7 @@ fun TrackSheet(id: String, close: () -> Unit) {
     val st = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = done, sheetState = st, containerColor = ECard) {
         LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 32.dp)) {
-            item { Text("Audio and subtitles", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.semantics { heading() }) }
+            item { Text("Audio and subtitles", color = EFg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.semantics { heading() }) }
             val j = t
             if (j == null) { item { Text(err.ifEmpty { "Loading…" }, color = ESub, modifier = Modifier.padding(vertical = 12.dp)) }; return@LazyColumn }
             item { Text("Audio", color = ESub, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp).semantics { heading() }) }
@@ -497,7 +556,8 @@ fun TrackSheet(id: String, close: () -> Unit) {
 @Composable
 private fun TrkRadio(label: String, on: Boolean, onPick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (on) Color(0x242DD4BF) else Color.Transparent)
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (on) (if (Look.low) EBtn2 else Color(0x242DD4BF)) else Color.Transparent)
+            .then(if (on && Look.low) Modifier.border(Look.line, EGreen, RoundedCornerShape(12.dp)) else Modifier)
             .clickable(onClick = onPick).semantics(mergeDescendants = true) { role = Role.RadioButton; selected = on }
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -505,7 +565,7 @@ private fun TrkRadio(label: String, on: Boolean, onPick: () -> Unit) {
         Box(Modifier.size(22.dp).clip(CircleShape).border(2.dp, if (on) EGreen else ESub, CircleShape), contentAlignment = Alignment.Center) {
             if (on) Box(Modifier.size(11.dp).clip(CircleShape).background(EGreen))
         }
-        Text(label, color = Color.White, fontSize = 16.sp, modifier = Modifier.padding(start = 14.dp))
+        Text(label, color = EFg, fontSize = 16.sp, modifier = Modifier.padding(start = 14.dp))
     }
 }
 
@@ -514,7 +574,7 @@ private fun MiniBtn(icon: ImageVector, label: String, onClick: () -> Unit) {
     Box(
         Modifier.size(48.dp).clip(CircleShape).clickable(onClick = onClick).semantics { contentDescription = label; role = Role.Button },
         contentAlignment = Alignment.Center
-    ) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(26.dp)) }
+    ) { Icon(icon, null, tint = EFg, modifier = Modifier.size(26.dp)) }
 }
 
 // ------------------------------------------------------------------------------------------- the drawer
@@ -524,7 +584,7 @@ private fun Drawer(close: () -> Unit) {
     val libs = home?.optJSONArray("libraries").objs()
     ModalDrawerSheet(drawerContainerColor = Color(0xFF1A1A1A)) {
         Column(Modifier.statusBarsPadding().padding(16.dp)) {
-            Text(Engine.me?.s("name") ?: "", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text(Engine.me?.s("name") ?: "", color = EFg, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Text(if (Api.atHome) "At home" else "Away from home", color = ESub, fontSize = 13.sp)
         }
         HorizontalDivider(color = Color(0xFF333333))
@@ -561,8 +621,8 @@ fun RowTitle(text: String, onMore: (() -> Unit)? = null) {
             .padding(start = 16.dp, end = 16.dp, top = 22.dp, bottom = 10.dp).semantics { heading() },
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
-        if (onMore != null) Icon(Ic.Chevron, null, tint = Color.White, modifier = Modifier.size(30.dp))
+        Text(text, color = EFg, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+        if (onMore != null) Icon(Ic.Chevron, null, tint = EFg, modifier = Modifier.size(30.dp))
     }
 }
 
@@ -571,10 +631,13 @@ fun RowTitle(text: String, onMore: (() -> Unit)? = null) {
 fun Poster(item: Item?, src: String, w: Int, modifier: Modifier, fallback: String = "", round: Dp = 12.dp, icon: ImageVector? = null) {
     Box(modifier.clip(RoundedCornerShape(round)).background(ECard)) {
         if (src.isEmpty() || icon != null) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            if (icon != null) Icon(icon, null, tint = Color.White, modifier = Modifier.fillMaxSize(0.4f))
+            if (icon != null) Icon(icon, null, tint = EFg, modifier = Modifier.fillMaxSize(0.4f))
             else Text(fallback, color = ESub, textAlign = TextAlign.Center, modifier = Modifier.padding(8.dp), fontSize = 14.sp)
         }
-        if (src.isNotEmpty()) AsyncImage(picUrl(src, w), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        if (src.isNotEmpty() && !Look.posters) Box(Modifier.fillMaxSize().background(EBtn2), contentAlignment = Alignment.Center) {
+            Text(fallback, color = EFg, textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, modifier = Modifier.padding(10.dp), fontSize = 16.sp)
+        }
+        else if (src.isNotEmpty()) AsyncImage(picUrl(src, w), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         if (item != null) {
             val played = W.isPlayed(item)
             when {
@@ -583,7 +646,7 @@ fun Poster(item: Item?, src: String, w: Int, modifier: Modifier, fallback: Strin
             }
             if (item.hasAd == true && item.type != "Book") AdMark(Modifier.align(Alignment.TopStart).padding(8.dp))
             if (item.hasAd == false) Text(
-                "No AD", color = Color.White, fontSize = 11.sp,
+                "No AD", color = EFg, fontSize = 11.sp,
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Color(0xC0000000), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp)
             )
             if (item.pct in 1..99 && !played) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Color(0x66000000))) {
@@ -623,7 +686,7 @@ fun PosterCard(item: Item, width: Dp, wide: Boolean = false, square: Boolean = f
             else -> item.poster.ifEmpty { item.thumb }
         }
         Poster(item, src, if (wide) 800 else 320, Modifier.fillMaxWidth().aspectRatio(if (wide) 16f / 9f else if (square) 1f else 2f / 3f), title)
-        Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        Text(title, color = EFg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
         if (subtitle.isNotEmpty()) Text(subtitle, color = ESub, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth())
@@ -656,7 +719,7 @@ private fun Loading(err: String) {
 private fun OfflineNote() {
     if (!Engine.offline) return
     Column(Modifier.fillMaxWidth().padding(16.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF3A1F1F)).padding(14.dp)) {
-        Text("Can't reach the PC - what's downloaded still plays.", color = Color.White)
+        Text("Can't reach the PC - what's downloaded still plays.", color = EFg)
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 6.dp)) {
             Text("Try again", color = EGreen, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { Engine.boot() })
             Text("Downloads", color = EGreen, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { W.openTab("downloads") })
@@ -672,9 +735,9 @@ fun UpdateCard() {
     var more by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(16.dp)).background(ECard)
         .border(1.dp, ELine, RoundedCornerShape(16.dp)).padding(16.dp)) {
-        Text("Version ${Update.available} is ready", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text("Version ${Update.available} is ready", color = EFg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         Text("You have ${Update.mine}.", color = ESub, fontSize = 14.sp)
-        if (more) Text(Update.notes, color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+        if (more) Text(Update.notes, color = EFg, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
         if (Update.message.isNotEmpty()) Text(Update.message, color = Color(0xFFFFB74D), fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             if (Update.progress >= 0) {
@@ -682,7 +745,7 @@ fun UpdateCard() {
                 Text("Install", color = Color(0xFF8A8A8A), fontSize = 20.sp,
                     modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0xFF3A3A3A)).padding(horizontal = 16.dp, vertical = 6.dp)
                         .semantics { role = Role.Button; disabled() })
-                Text("Downloading, ${Update.progress / 10 * 10} percent…", color = Color.White, fontSize = 15.sp,
+                Text("Downloading, ${Update.progress / 10 * 10} percent…", color = EFg, fontSize = 15.sp,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             } else {
                 WhitePill("Install", null, Modifier) { Engine.scope.launch { Update.install(ctx) } }
@@ -704,7 +767,7 @@ private fun InviteCards() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(Ic.Group, null, tint = EGreen)
-            Text("${r.s("by")} wants to $w together.", color = Color.White, modifier = Modifier.weight(1f).padding(horizontal = 10.dp))
+            Text("${r.s("by")} wants to $w together.", color = EFg, modifier = Modifier.weight(1f).padding(horizontal = 10.dp))
             WhitePill("Join", Ic.Play, Modifier.width(100.dp).height(42.dp)) { Engine.tgJoin(r.s("id")) }
         }
     }
@@ -713,19 +776,19 @@ private fun InviteCards() {
 @Composable
 fun WhitePill(text: String, icon: ImageVector?, modifier: Modifier, dark: Boolean = false, size: Int = 20, onClick: () -> Unit) {
     Row(
-        modifier.clip(RoundedCornerShape(14.dp)).background(if (dark) EBtn2 else Color.White)
+        modifier.clip(RoundedCornerShape(14.dp)).background(if (dark) EBtn2 else EMain)
             .then(if (dark) Modifier.border(1.dp, ELine, RoundedCornerShape(14.dp)) else Modifier).clickable(onClick = onClick)
             .semantics { role = Role.Button }.padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
     ) {
-        if (icon != null) Icon(icon, null, tint = if (dark) Color.White else EInk, modifier = Modifier.size(26.dp))
-        Text(text, color = if (dark) Color.White else EInk, fontSize = size.sp, fontWeight = if (dark) FontWeight.SemiBold else FontWeight.ExtraBold,
+        if (icon != null) Icon(icon, null, tint = if (dark) EFg else EInk, modifier = Modifier.size(26.dp))
+        Text(text, color = if (dark) EFg else EInk, fontSize = size.sp, fontWeight = if (dark) FontWeight.SemiBold else FontWeight.ExtraBold,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = if (icon != null) 8.dp else 0.dp))
     }
 }
 
 @Composable
-private fun Action(label: String, icon: ImageVector, tint: Color = Color.White, onTap: () -> Unit) {
+private fun Action(label: String, icon: ImageVector, tint: Color = EFg, onTap: () -> Unit) {
     Column(
         Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onTap).padding(horizontal = 12.dp, vertical = 6.dp)
             .clearAndSetSemantics { contentDescription = label; role = Role.Button; onClick { onTap(); true } },
@@ -773,7 +836,7 @@ fun AdMark(modifier: Modifier = Modifier) {
 @Composable
 private fun WebRowTitle(text: String, onAll: (() -> Unit)?) {
     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 26.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(text, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 27.sp,
+        Text(text, color = EFg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 27.sp,
             modifier = Modifier.weight(1f).semantics { heading() })
         if (onAll != null) Text("See all", color = ESub, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onAll).padding(horizontal = 8.dp, vertical = 8.dp)
@@ -808,10 +871,13 @@ private fun WebHome(p: Page) {
         pick.toList()
     }
     val loading = rows.all { it.second.first == null }
+    val low = Look.low
+    Column(Modifier.fillMaxSize()) {
+    if (low) TopBar(null, {}, heading = false)
     Box(Modifier.fillMaxSize()) {
-        Refreshable(Modifier.fillMaxSize(), belowTopBar = true) {
+        Refreshable(Modifier.fillMaxSize(), belowTopBar = !low) {
             LazyColumn(Modifier.fillMaxSize(), state = W.list(p), contentPadding = PaddingValues(bottom = 190.dp)) {
-                if (hero.isNotEmpty()) item { HeroPager(hero) } else item { Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars).height(84.dp)) }
+                if (hero.isNotEmpty()) item { HeroPager(hero) } else if (!low) item { Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars).height(84.dp)) }
                 item { OfflineNote() }
                 item { InviteCards() }
                 item { UpdateCard() }
@@ -829,10 +895,10 @@ private fun WebHome(p: Page) {
                         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             items(list) { it ->
                                 when (r.shape) {
-                                    "land" -> PosterCard(it, 250.dp, wide = true,
+                                    "land" -> PosterCard(it, if (low) 300.dp else 250.dp, wide = true,
                                         onLong = if (it.type == "Episode" && it.seriesId.isNotEmpty()) ({ W.go(Page("item", it.seriesId, it.seriesName, "Series")) }) else null)
-                                    "sq" -> PosterCard(it, 150.dp, square = true)
-                                    else -> PosterCard(it, 124.dp)
+                                    "sq" -> PosterCard(it, if (low) 220.dp else 150.dp, square = true)
+                                    else -> PosterCard(it, if (low) 190.dp else 124.dp)
                                 }
                             }
                         }
@@ -842,7 +908,8 @@ private fun WebHome(p: Page) {
         }
         val ls = W.list(p)
         val scrolled by remember { derivedStateOf { ls.firstVisibleItemIndex > 0 || ls.firstVisibleItemScrollOffset > 120 } }
-        TopBar(null, {}, solid = scrolled, heading = false)
+        if (!low) TopBar(null, {}, solid = scrolled, heading = false)
+    }
     }
 }
 
@@ -858,14 +925,15 @@ private fun HeroPager(list: List<Pair<Item, String>>) {
             Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
+            val still = Look.low && Engine.sOn("still")
             list.forEachIndexed { j, (it, _) ->
                 val on = pager.currentPage == j
                 val t = if (it.type == "Episode") it.seriesName.ifEmpty { it.label } else it.name
                 Box(
-                    Modifier.size(width = 34.dp, height = 28.dp).clickable { scope.launch { pager.animateScrollToPage(j) } }
+                    Modifier.size(width = 34.dp, height = 28.dp).clickable { scope.launch { if (still) pager.scrollToPage(j) else pager.animateScrollToPage(j) } }
                         .semantics { contentDescription = "Featured ${j + 1} of ${list.size}: $t" + if (on) ", showing" else ""; role = Role.Button },
                     contentAlignment = Alignment.CenterStart
-                ) { Box(Modifier.size(width = if (on) 28.dp else 16.dp, height = 4.dp).clip(RoundedCornerShape(2.dp)).background(if (on) Color.White else Color(0x66FFFFFF))) }
+                ) { Box(Modifier.size(width = if (on) 28.dp else 16.dp, height = 4.dp).clip(RoundedCornerShape(2.dp)).background(if (on) (if (Look.low) EFg else Color.White) else if (Look.low) ESub.copy(alpha = 0.5f) else Color(0x66FFFFFF))) }
             }
         }
     }
@@ -878,6 +946,28 @@ private fun HeroSlide(it: Item, k: String) {
     val series = it.type == "Series"
     val art = it.j.s("series_backdrop").ifEmpty { it.backdrop.ifEmpty { it.thumb } }
     val title = if (ep) it.seriesName.ifEmpty { it.name } else it.name
+    if (Look.low) {
+        Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 14.dp, bottom = 40.dp).clip(RoundedCornerShape(24.dp)).background(EBtn2)
+            .border(Look.line, ELine, RoundedCornerShape(24.dp))) {
+            if (art.isNotEmpty() && Look.posters) AsyncImage(picUrl(art, 1280), null, Img.loader, Modifier.fillMaxWidth().aspectRatio(16f / 9f), contentScale = ContentScale.Crop)
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text((if (k == "continue") "Continue watching" else if (k == "recent") "New with audio description" else "With audio description").uppercase(),
+                    color = EFg, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
+                Text(title, color = EFg, fontSize = 24.sp, fontWeight = FontWeight.Bold, lineHeight = 30.sp, modifier = Modifier.semantics { heading() })
+                val bits = (if (ep) listOf(it.epTitle(), it.rt.ifEmpty { it.length }) else listOf(if (series) it.years else it.year, it.rt.ifEmpty { it.length }, it.rating))
+                    .filter { b -> b.isNotEmpty() } + (if (it.resume.isNotEmpty()) listOf("Resumes at ${it.resume}") else emptyList())
+                if (bits.isNotEmpty()) Text(bits.joinToString(" · "), color = EFg, fontSize = 16.sp)
+                val play = if (series) "Episodes" else if (it.resume.isNotEmpty()) "Resume" else "Play"
+                WebBtn(play, main = true, label = (if (series) "Open " else "$play ") + it.label.ifEmpty { title }, modifier = Modifier.fillMaxWidth()) {
+                    if (series) W.open(it) else Engine.start(it, it.resume.isNotEmpty())
+                }
+                if (!series) WebBtn("More info", label = "More about $title", modifier = Modifier.fillMaxWidth()) {
+                    if (!ep && it.seriesId.isNotEmpty()) W.go(Page("item", it.seriesId, it.seriesName, "Series")) else W.open(it)
+                }
+            }
+        }
+        return
+    }
     Box(Modifier.fillMaxWidth().height(560.dp).background(Color.Black)) {
         if (art.isNotEmpty()) AsyncImage(picUrl(art, if ("/Backdrop" in art) 1920 else 1280), null, Img.loader, Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
@@ -887,7 +977,7 @@ private fun HeroSlide(it: Item, k: String) {
                 (if (k == "continue") "Continue watching" else if (k == "recent") "New with audio description" else "With audio description").uppercase(),
                 color = EGreen, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.6.sp
             )
-            Text(title, color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 36.sp, maxLines = 2,
+            Text(title, color = EFg, fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 36.sp, maxLines = 2,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() })
             FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 val bits = (if (ep) listOf(it.epTitle(), it.rt.ifEmpty { it.length }) else listOf(if (series) it.years else it.year, it.rt.ifEmpty { it.length }, it.rating))
@@ -902,7 +992,7 @@ private fun HeroSlide(it: Item, k: String) {
             Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val play = if (series) "Episodes" else if (it.resume.isNotEmpty()) "Resume" else "Play"
                 Row(
-                    Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(12.dp)).background(Color.White)
+                    Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(12.dp)).background(EMain)
                         .clickable { if (series) W.open(it) else Engine.start(it, it.resume.isNotEmpty()) }
                         .semantics(mergeDescendants = true) { contentDescription = (if (series) "Open " else "$play ") + it.label.ifEmpty { title }; role = Role.Button },
                     horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
@@ -916,8 +1006,8 @@ private fun HeroSlide(it: Item, k: String) {
                         .semantics(mergeDescendants = true) { contentDescription = "More about $title"; role = Role.Button },
                     horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Ic.Info, null, tint = Color.White, modifier = Modifier.size(22.dp))
-                    Text("More info", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(start = 8.dp))
+                    Icon(Ic.Info, null, tint = EFg, modifier = Modifier.size(22.dp))
+                    Text("More info", color = EFg, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(start = 8.dp))
                 }
             }
         }
@@ -935,7 +1025,7 @@ private fun HomePage(p: Page, favorites: Boolean, openDrawer: () -> Unit) {
         LazyColumn(Modifier.fillMaxSize(), state = W.list(p), contentPadding = PaddingValues(bottom = 170.dp)) {
             item { Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars)) }
             item { Spacer(Modifier.height(76.dp)) }
-            if (favorites) item { Text("Favorites", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 16.dp).semantics { heading() }) }
+            if (favorites) item { Text("Favorites", color = EFg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 16.dp).semantics { heading() }) }
             item { OfflineNote() }
             item { InviteCards() }
             item { UpdateCard() }
@@ -966,7 +1056,7 @@ private fun HomePage(p: Page, favorites: Boolean, openDrawer: () -> Unit) {
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Poster(null, l.s("image"), 480, Modifier.fillMaxWidth().aspectRatio(16f / 9f), l.s("name"))
-                                Text(l.s("name"), color = Color.White, fontSize = 16.sp, maxLines = 1, modifier = Modifier.padding(top = 6.dp))
+                                Text(l.s("name"), color = EFg, fontSize = 16.sp, maxLines = 1, modifier = Modifier.padding(top = 6.dp))
                             }
                         }
                     }
@@ -1001,7 +1091,7 @@ private fun GridPage(p: Page, openDrawer: () -> Unit) {
         TopBar(null, openDrawer, heading = false)
         // the name and how many (as on the web page); a library: the round Sort and filter button, and the chips (kept for next time)
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(p.title + (if (list != null) " (${list.size})" else ""), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold,
+            Text(p.title + (if (list != null) " (${list.size})" else ""), color = EFg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold,
                 lineHeight = 33.sp, modifier = Modifier.weight(1f).semantics { heading() })
             if (p.kind == "library") SortFilterButton(p.id, view) { v -> view = v; LibView.save(p.id, v) }
         }
@@ -1014,7 +1104,7 @@ private fun GridPage(p: Page, openDrawer: () -> Unit) {
             p.id == "requests" -> LazyColumn(contentPadding = PaddingValues(16.dp, 0.dp, 16.dp, 170.dp)) {
                 items(list) { r ->
                     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                        Text(r.label, color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(r.label, color = EFg, fontWeight = FontWeight.SemiBold)
                         Text("${r.text}. Asked for on ${r.date}.", color = ESub, fontSize = 14.sp)
                     }
                     HorizontalDivider(color = Color(0xFF2A2A2A))
@@ -1065,7 +1155,7 @@ private fun Logo(info: Item, name: String) {
         picUrl(info.logo, 600), name, Img.loader,
         Modifier.heightIn(max = 110.dp).widthIn(max = 280.dp), contentScale = ContentScale.Fit, alignment = Alignment.CenterStart,
         onError = { failed = true }
-    ) else Text(name, color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold, lineHeight = 38.sp)
+    ) else Text(name, color = EFg, fontSize = 34.sp, fontWeight = FontWeight.Bold, lineHeight = 38.sp)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -1079,17 +1169,17 @@ private fun MetaRow(info: Item) {
         val style = Modifier.align(Alignment.CenterVertically)
         if (info.score.isNotEmpty()) Row(style, verticalAlignment = Alignment.CenterVertically) {
             Icon(Ic.Star, null, tint = ERed, modifier = Modifier.size(22.dp))
-            Text(info.score, color = Color.White, fontSize = 17.sp, modifier = Modifier.padding(start = 3.dp))
+            Text(info.score, color = EFg, fontSize = 17.sp, modifier = Modifier.padding(start = 3.dp))
         }
-        @Composable fun t(s: String) { if (s.isNotEmpty()) Text(s, color = Color.White, fontSize = 17.sp, modifier = style) }
+        @Composable fun t(s: String) { if (s.isNotEmpty()) Text(s, color = EFg, fontSize = 17.sp, modifier = style) }
         t(if (info.type == "Series") info.years else info.year)
         if (info.type == "Movie") t(info.rt)
         if (info.type == "Series") {
             t(j.s("studio"))
             val n = j.i("season_count"); if (n > 0) t("$n Season" + if (n == 1) "" else "s")
         }
-        if (info.rating.isNotEmpty()) Text(info.rating, color = Color.White, fontSize = 15.sp,
-            modifier = style.border(1.dp, Color.White, RoundedCornerShape(3.dp)).padding(horizontal = 5.dp, vertical = 1.dp))
+        if (info.rating.isNotEmpty()) Text(info.rating, color = EFg, fontSize = 15.sp,
+            modifier = style.border(1.dp, EFg, RoundedCornerShape(3.dp)).padding(horizontal = 5.dp, vertical = 1.dp))
         t(info.genres.split(", ").take(2).joinToString(", "))
         if (info.hasAd == false) Text("No audio description", color = Color(0xFFFFB74D), fontSize = 15.sp, modifier = style)
     }
@@ -1101,7 +1191,7 @@ private fun Overview(text: String) {
     var open by remember { mutableStateOf(false) }
     var over by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth().clickable { open = !open }.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(text, color = Color.White, fontSize = 17.sp, lineHeight = 24.sp, maxLines = if (open) 60 else 3, overflow = TextOverflow.Clip,
+        Text(text, color = EFg, fontSize = 17.sp, lineHeight = 24.sp, maxLines = if (open) 60 else 3, overflow = TextOverflow.Clip,
             onTextLayout = { if (!open) over = it.hasVisualOverflow })
         if (!open && over) Text("More", color = ESub, fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.align(Alignment.BottomEnd).background(Brush.horizontalGradient(0f to Color.Transparent, 0.45f to EBg)).padding(start = 56.dp))
@@ -1132,12 +1222,13 @@ private fun MoreMenu(item: Item, open: Boolean, onClose: () -> Unit, extra: List
 @Composable
 fun WebBtn(text: String, main: Boolean = false, label: String? = null, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
-        modifier.heightIn(min = if (main) 52.dp else 46.dp).clip(RoundedCornerShape(12.dp)).background(if (main) Color.White else EBtn2)
-            .then(if (main) Modifier else Modifier.border(1.dp, ELine, RoundedCornerShape(12.dp)))
+        modifier.heightIn(min = if (Look.low) 64.dp else if (main) 52.dp else 46.dp).focusRing().clip(RoundedCornerShape(if (Look.low) 14.dp else 12.dp))
+            .background(if (main) EMain else EBtn2)
+            .then(if (main && !Look.low) Modifier else Modifier.border(Look.line, if (main) EMain else ELine, RoundedCornerShape(if (Look.low) 14.dp else 12.dp)))
             .clickable(onClick = onClick).semantics { role = Role.Button; if (label != null) contentDescription = label }
             .padding(horizontal = if (main) 26.dp else 16.dp),
         contentAlignment = Alignment.Center
-    ) { Text(text, color = if (main) EInk else Color.White, fontSize = if (main) 17.sp else 16.sp, fontWeight = if (main) FontWeight.ExtraBold else FontWeight.SemiBold) }
+    ) { Text(text, color = if (main) EInk else EFg, fontSize = if (main) 17.sp else 16.sp, fontWeight = if (main) FontWeight.ExtraBold else if (Look.low) FontWeight.Bold else FontWeight.SemiBold) }
 }
 
 /** A show's, movie's or episode's page, as on the web page: the name, the picture, the buttons, what it's about, the
@@ -1166,7 +1257,7 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
             val ep = p.extra == "Episode" || info?.type == "Episode"
             val head = if (info == null) p.title else if (ep && info.seriesName.isNotEmpty()) "${info.seriesName}, ${info.epTitle()}" else info.name
             item {
-                Text(head, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,
+                Text(head, color = EFg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 12.dp).semantics { heading() })
             }
             if (info == null) { item { Loading(err) }; return@LazyColumn }
@@ -1186,7 +1277,7 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                             if (ep && info.seriesName.isNotEmpty()) Text(
                                 info.seriesName + (if (info.se >= 0 && info.ep >= 0) " · Season ${info.se}, episode ${info.ep}" else ""),
                                 color = ESub, fontSize = 15.sp, lineHeight = 20.sp)
-                            Text(info.name, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 28.sp)
+                            Text(info.name, color = EFg, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 28.sp)
                             val meta = listOf(if (info.type == "Series") info.years else info.year,
                                 if (info.type == "Series") j.i("season_count").let { n -> if (n > 0) "$n season" + (if (n == 1) "" else "s") else "" } else info.length,
                                 info.rating, if (info.score.isNotEmpty()) "★ ${info.score}" else "").filter { it.isNotEmpty() }.joinToString(" · ")
@@ -1233,7 +1324,7 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                 Text(j.s("tagline"), color = ESub, fontSize = 16.sp, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp))
             }
             if (info.overview.isNotEmpty()) item {
-                Text(info.overview, color = Color.White, fontSize = 17.sp, lineHeight = 25.sp, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp))
+                Text(info.overview, color = EFg, fontSize = 17.sp, lineHeight = 25.sp, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp))
             }
             // a show: its seasons as buttons, that season's episodes under them
             if (!seasons.isNullOrEmpty()) {
@@ -1257,18 +1348,18 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                 "Picture" to j.s("video_info"), "Sound" to j.s("audio_info")).filter { it.second.isNotEmpty() }
             if (facts.isNotEmpty()) item {
                 Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 22.dp)) {
-                    Text("Details", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.semantics { heading() })
+                    Text("Details", color = EFg, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.semantics { heading() })
                     facts.forEach { (k, v) ->
                         Column(Modifier.padding(top = 10.dp).semantics(mergeDescendants = true) {}) {
                             Text(k, color = ESub, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                            Text(v, color = Color.White, fontSize = 17.sp)
+                            Text(v, color = EFg, fontSize = 17.sp)
                         }
                     }
                 }
             }
             val people = j.optJSONArray("people").objs()
             if (people.isNotEmpty()) {
-                item { Text("Cast", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold,
+                item { Text("Cast", color = EFg, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold,
                     modifier = Modifier.padding(start = 16.dp, top = 24.dp, bottom = 12.dp).semantics { heading() }) }
                 item {
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -1278,7 +1369,7 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                                     if (pp.s("image").isNotEmpty()) AsyncImage(picUrl(pp.s("image"), 240), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                                     else Icon(Ic.Person, null, tint = ESub, modifier = Modifier.size(40.dp))
                                 }
-                                Text(pp.s("name"), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                                Text(pp.s("name"), color = EFg, fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
                                     lineHeight = 19.sp, modifier = Modifier.padding(top = 8.dp))
                                 Text(pp.s("role"), color = ESub, fontSize = 14.sp, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
@@ -1296,11 +1387,11 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
 @Composable
 fun Chip(text: String, on: Boolean, onClick: () -> Unit) {
     Box(
-        Modifier.height(42.dp).clip(RoundedCornerShape(21.dp)).background(if (on) Color.White else EBtn2)
-            .then(if (on) Modifier else Modifier.border(1.dp, ELine, RoundedCornerShape(21.dp)))
+        Modifier.heightIn(min = if (Look.low) 60.dp else 42.dp).focusRing().clip(RoundedCornerShape(if (Look.low) 14.dp else 21.dp)).background(if (on) EMain else EBtn2)
+            .then(if (on && !Look.low) Modifier else Modifier.border(Look.line, if (on) EMain else ELine, RoundedCornerShape(if (Look.low) 14.dp else 21.dp)))
             .clickable(onClick = onClick).semantics { role = Role.Button; selected = on }.padding(horizontal = 18.dp),
         contentAlignment = Alignment.Center
-    ) { Text(text, color = if (on) EInk else Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
+    ) { Text(text, color = if (on) EInk else EFg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
 }
 
 /** An episode in a show's list, as on the web page: its picture, name, length and what it's about; then Play, Play
@@ -1316,7 +1407,7 @@ private fun EpRow(it: Item) {
         ) {
             Poster(it, it.thumb, 480, Modifier.width(150.dp).aspectRatio(16f / 9f), it.name)
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(it.epTitle(), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp)
+                Text(it.epTitle(), color = EFg, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp)
                 val m = listOf(it.length.ifEmpty { it.rt }, if (it.resume.isNotEmpty()) "resumes at ${it.resume}" else if (W.isPlayed(it)) "watched" else "",
                     if (it.hasAd == false) "without description" else "").filter { x -> x.isNotEmpty() }.joinToString(" · ")
                 if (m.isNotEmpty()) Text(m, color = ESub, fontSize = 14.sp, modifier = Modifier.padding(top = 2.dp))
@@ -1336,9 +1427,9 @@ private fun EpRow(it: Item) {
 }
 
 private fun buildLabel(a: String, b: String, grey: Boolean = false) = androidx.compose.ui.text.buildAnnotatedString {
-    pushStyle(androidx.compose.ui.text.SpanStyle(color = if (grey) ESub else Color.White))
+    pushStyle(androidx.compose.ui.text.SpanStyle(color = if (grey) ESub else EFg))
     append(if (grey) a else "$a  "); pop()
-    pushStyle(androidx.compose.ui.text.SpanStyle(color = if (grey) Color.White else ESub, fontWeight = if (grey) FontWeight.SemiBold else FontWeight.Normal))
+    pushStyle(androidx.compose.ui.text.SpanStyle(color = if (grey) EFg else ESub, fontWeight = if (grey) FontWeight.SemiBold else FontWeight.Normal))
     append(b); pop()
 }
 
@@ -1358,7 +1449,7 @@ private fun SeasonPage(p: Page, openDrawer: () -> Unit) {
                 Hero(info, ls) {
                     if (info != null) Column {
                         Logo(info, info.seriesName.ifEmpty { info.name })
-                        Text(info.name, color = Color.White, fontSize = 24.sp, modifier = Modifier.padding(top = 14.dp))
+                        Text(info.name, color = EFg, fontSize = 24.sp, modifier = Modifier.padding(top = 14.dp))
                     }
                 }
             }
@@ -1377,7 +1468,7 @@ private fun SeasonPage(p: Page, openDrawer: () -> Unit) {
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                     val pl = W.isPlayed(info)
-                    Action("Played", Ic.Check, if (pl) EGreen else Color.White) { W.markPlayed(info, !pl) }
+                    Action("Played", Ic.Check, if (pl) EGreen else EFg) { W.markPlayed(info, !pl) }
                     if (info.seriesId.isNotEmpty()) Action("Show", Ic.Tv) { W.go(Page("item", info.seriesId, info.seriesName, "Series")) }
                     Box {
                         Action("More", Ic.More) { more = true }
@@ -1411,11 +1502,11 @@ private fun EpisodeCard(item: Item) {
                     Modifier.align(Alignment.Center).size(46.dp).clip(CircleShape).background(Color(0x55000000))
                         .border(BorderStroke(3.dp, Color.White), CircleShape),
                     contentAlignment = Alignment.Center
-                ) { Icon(Ic.Play, null, tint = Color.White, modifier = Modifier.size(28.dp)) }
+                ) { Icon(Ic.Play, null, tint = EFg, modifier = Modifier.size(28.dp)) }
             }
             Column(Modifier.weight(1f).clickable(onClick = page).padding(start = 14.dp, top = 4.dp, bottom = 4.dp)
                 .semantics(mergeDescendants = true) { contentDescription = "About " + item.spoken(); role = Role.Button }) {
-                Text((if (item.ep >= 0) "${item.ep}. " else "") + item.name, color = Color.White, fontSize = 18.sp,
+                Text((if (item.ep >= 0) "${item.ep}. " else "") + item.name, color = EFg, fontSize = 18.sp,
                     fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 2.dp)) {
                     if (item.aired.isNotEmpty()) Text(item.aired, color = ESub, fontSize = 15.sp)
@@ -1425,10 +1516,10 @@ private fun EpisodeCard(item: Item) {
                 }
             }
             IconButton(onClick = { Engine.start(item, item.resume.isNotEmpty(), together = true) }) {
-                Icon(Ic.Group, "Play ${item.label} together", tint = Color.White)
+                Icon(Ic.Group, "Play ${item.label} together", tint = EFg)
             }
             Box {
-                IconButton(onClick = { menu = true }) { Icon(Ic.More, "More for ${item.name}", tint = Color.White) }
+                IconButton(onClick = { menu = true }) { Icon(Ic.More, "More for ${item.name}", tint = EFg) }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     val pl = W.isPlayed(item)
                     if (item.resume.isNotEmpty()) DropdownMenuItem(text = { Text("Start from the beginning") }, leadingIcon = { Icon(Ic.Restart, null) },
@@ -1506,7 +1597,7 @@ private fun DownloadsPage(p: Page, openDrawer: () -> Unit) {
                             Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     }
                     Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                        Text(s.title, color = Color.White, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(s.title, color = EFg, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(s.kindText(), color = ESub, fontSize = 13.sp)
                         Offline.detail(s).forEachIndexed { i, line ->
                             Text(line, color = if (s.state == "failed") Color(0xFFFF8A80) else if (i == 0) Color(0xFFDDDDDD) else ESub, fontSize = 13.sp)
@@ -1515,7 +1606,7 @@ private fun DownloadsPage(p: Page, openDrawer: () -> Unit) {
                             LinearProgressIndicator(progress = { s.progress / 100f }, color = EGreen, trackColor = ECard,
                                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
                     }
-                    if (s.done) IconButton(onClick = { Engine.playDownload(s) }) { Icon(Ic.Play, "Play ${s.title}", tint = Color.White) }
+                    if (s.done) IconButton(onClick = { Engine.playDownload(s) }) { Icon(Ic.Play, "Play ${s.title}", tint = EFg) }
                     IconButton(onClick = { Offline.remove(s) }) {
                         Icon(if (s.done) Ic.Close else Ic.Stop, (if (s.done) "Remove the download of " else "Stop downloading ") + s.title, tint = ESub)
                     }
@@ -1539,7 +1630,7 @@ private fun BooksPage(p: Page, openDrawer: () -> Unit) {
     val list = d?.itemList()
     Column(Modifier.fillMaxSize()) {
         TopBar(null, openDrawer, heading = false)
-        Text((if (sub) p.title else "Audiobooks") + (if (list != null) " (${list.size})" else ""), color = Color.White, fontSize = 28.sp,
+        Text((if (sub) p.title else "Audiobooks") + (if (list != null) " (${list.size})" else ""), color = EFg, fontSize = 28.sp,
             fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 12.dp).semantics { heading() })
         if (!sub) LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 10.dp)) {
@@ -1561,7 +1652,7 @@ private fun BooksPage(p: Page, openDrawer: () -> Unit) {
                             .clickable { W.go(Page("books", b.id, b.label, if (b.type == "BookSeries") "books_inseries" else "books_byauthor")) }
                             .semantics(mergeDescendants = true) { role = Role.Button }.padding(16.dp)
                     ) {
-                        Text(b.label, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                        Text(b.label, color = EFg, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                         if (b.count > 0) Text("${b.count} " + if (b.count == 1) "book" else "books", color = ESub, fontSize = 14.sp)
                     } else PosterCard(b, Dp.Unspecified, square = true, sub = if (b.pct > 0) "${b.pct}% done" else b.author)
                 }
@@ -1590,7 +1681,7 @@ private fun BookPage(p: Page, openDrawer: () -> Unit) {
         TopBar(null, openDrawer, heading = false)
         LazyColumn(Modifier.fillMaxSize(), state = ls, contentPadding = PaddingValues(bottom = 190.dp)) {
             item {
-                Text(title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,
+                Text(title, color = EFg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 14.dp).semantics { heading() })
             }
             item {
@@ -1636,9 +1727,9 @@ private fun BookPage(p: Page, openDrawer: () -> Unit) {
                 val about = listOf("Author" to (bd?.s("author") ?: item.author), "Read by" to (bd?.s("narrator") ?: item.narrator),
                     "Series" to series, "Genres" to (bd?.s("genres") ?: ""), "Published" to (bd?.s("year") ?: "")).filter { it.second.isNotEmpty() }
                 if (about.isNotEmpty()) Column(Modifier.padding(horizontal = 16.dp)) {
-                    Text("About", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
+                    Text("About", color = EFg, fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
                     about.forEach { (k, v) ->
-                        Text(k, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp))
+                        Text(k, color = EFg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp))
                         Text(v, color = ESub, fontSize = 16.sp)
                     }
                 }
@@ -1648,7 +1739,7 @@ private fun BookPage(p: Page, openDrawer: () -> Unit) {
                 itemsIndexed(chapters) { i, c ->
                     Row(Modifier.fillMaxWidth().clickable { Engine.bookPlay(item, false, c.d("start")) }.padding(horizontal = 16.dp, vertical = 12.dp)) {
                         Text("${i + 1}", color = ESub, fontSize = 15.sp, modifier = Modifier.width(34.dp))
-                        Text(c.s("title"), color = Color.White, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                        Text(c.s("title"), color = EFg, fontSize = 16.sp, modifier = Modifier.weight(1f))
                         Text(clock(c.d("start")), color = ESub, fontSize = 14.sp)
                     }
                     HorizontalDivider(color = ELine, modifier = Modifier.padding(horizontal = 16.dp))
@@ -1661,6 +1752,71 @@ private fun BookPage(p: Page, openDrawer: () -> Unit) {
 }
 
 // ------------------------------------------------------------------------------------------- settings
+// ------------------------------------------------------------------------------------------- how she sees the screen
+private val SIGHTS = listOf(
+    listOf("none", "No vision", "I use a screen reader and don't look at the screen.", "Audio-only layout", "Short lists in reading order", "Everything spoken, nothing to look at"),
+    listOf("low", "Low vision", "I can see the screen, but it needs to be big and clear.", "Large text and buttons", "High contrast, light or dark", "Fewer things on each line"),
+    listOf("full", "Full vision", "I see the screen fine.", "Posters and rows", "Like other media apps", "Still works with a screen reader")
+)
+fun sightName(v: String) = SIGHTS.firstOrNull { it[0] == v }?.get(1) ?: "No vision"
+fun sightSaid(v: String) = sightName(v) + when (v) {
+    "none" -> ": the audio-only layout."
+    "low" -> ": big text and high contrast. A minus, A plus and Screen are at the top."
+    else -> ": the poster layout."
+}
+
+/** No vision, low vision, full vision: one press chooses (as on the web page). */
+@Composable
+fun SightChoices(cur: String, onPick: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.selectableGroup()) {
+        SIGHTS.forEach { x ->
+            val on = x[0] == cur
+            Row(
+                Modifier.fillMaxWidth().focusRing(RoundedCornerShape(18.dp)).clip(RoundedCornerShape(18.dp)).background(EBtn2)
+                    .border(if (on) Look.line + 2.dp else maxOf(Look.line, 1.dp), if (on) EGreen else ELine, RoundedCornerShape(18.dp))
+                    .selectable(selected = on, role = Role.RadioButton) { onPick(x[0]) }
+                    .padding(18.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Box(Modifier.padding(top = 3.dp).size(24.dp).clip(CircleShape).border(2.dp, if (on) EGreen else ESub, CircleShape), contentAlignment = Alignment.Center) {
+                    if (on) Box(Modifier.size(12.dp).clip(CircleShape).background(EGreen))
+                }
+                Column(Modifier.padding(start = 14.dp)) {
+                    Text(x[1], color = EFg, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(x[2], color = EFg, fontSize = 16.sp, lineHeight = 22.sp, modifier = Modifier.padding(top = 2.dp))
+                    x.drop(3).forEach { b -> Text("· $b", color = ESub, fontSize = 15.sp, lineHeight = 21.sp) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SightGroup(t: String) = Text(t, color = EFg, fontSize = 20.sp, fontWeight = FontWeight.Bold,
+    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 22.dp, bottom = 8.dp).semantics { heading() })
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SightPicks(opts: List<Pair<String, String>>, cur: String, onPick: (String, String) -> Unit) {
+    FlowRow(Modifier.padding(horizontal = 16.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        opts.forEach { (k, l) -> Chip(l, cur == k) { if (cur != k) onPick(k, l) } }
+    }
+}
+
+/** Asked once, at the first sign-in (as on the web page); kept on the PC, so it's the same everywhere she signs in. */
+@Composable
+fun SightScreen() {
+    Surface(Modifier.fillMaxSize(), color = EBg) {
+        Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp)) {
+            Text("How do you see the screen?", color = EFg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,
+                modifier = Modifier.padding(top = 12.dp).semantics { heading() })
+            Text("Press the one that fits you. Everything works with TalkBack either way. You can change this any time under You.",
+                color = ESub, fontSize = 16.sp, lineHeight = 23.sp, modifier = Modifier.padding(top = 8.dp, bottom = 18.dp))
+            SightChoices(if (Engine.sightChosen) Engine.sight else "") { v -> Engine.sightSave(mapOf("sight" to v), sightSaid(v)) }
+        }
+    }
+}
+
 /** You (settings), as on the web page: who's signed in, then a card for each part; each opens its own page. */
 @Composable
 private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
@@ -1680,7 +1836,7 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
                 Icon(icon, null, tint = EInk, modifier = Modifier.size(22.dp))
             }
             Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                Text(title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text(title, color = EFg, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                 if (sub.isNotEmpty()) Text(sub, color = ESub, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Icon(Ic.Chevron, null, tint = ESub)
@@ -1693,7 +1849,7 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                Text(title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text(title, color = EFg, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                 if (sub.isNotEmpty()) Text(sub, color = ESub, fontSize = 14.sp)
             }
             trailing?.invoke()
@@ -1708,12 +1864,47 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
     }
     val section = p.id
     val head = when (section) {
-        "account" -> "Account"; "playback" -> "Playback"; "downloads" -> "Downloads"; "ad" -> "Audio description"; "app" -> "This app"; else -> "Settings"
+        "account" -> "Account"; "playback" -> "Playback"; "downloads" -> "Downloads"; "ad" -> "Audio description"; "app" -> "This app"
+        "sight" -> "How you see the screen"; else -> "Settings"
     }
     Column(Modifier.fillMaxSize()) {
         TopBar(head, openDrawer)
         LazyColumn(contentPadding = PaddingValues(top = 6.dp, bottom = 190.dp)) {
             when (section) {
+                "sight" -> {
+                    item { Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { SightChoices(Engine.sight) { v -> if (v != Engine.sight) Engine.sightSave(mapOf("sight" to v), sightSaid(v)) } } }
+                    if (Look.low) {
+                        item { SightGroup("Text size") }
+                        item {
+                            SightPicks(listOf("normal" to "Normal", "large" to "Large", "larger" to "Larger", "largest" to "Largest"), Engine.sOpt("size")) { k, l ->
+                                Engine.sightSave(mapOf("size" to k), "Text size: ${l.lowercase()}.")
+                            }
+                        }
+                        item { SightGroup("Screen") }
+                        item {
+                            SightPicks(listOf("dark" to "Dark", "light" to "Light", "yellow" to "Yellow on black"), Engine.sOpt("screen")) { k, l ->
+                                Engine.sightSave(mapOf("screen" to k), "Screen: ${l.lowercase()}.")
+                            }
+                        }
+                        item { SightGroup("More") }
+                        listOf("video" to "Show the video when playing", "focus" to "Extra-thick outline on what is selected",
+                            "still" to "Turn off moving animations", "posters" to "Show posters and covers").forEach { (k, l) ->
+                            item {
+                                val on = Engine.sOn(k)
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp).focusRing(RoundedCornerShape(16.dp))
+                                        .clip(RoundedCornerShape(16.dp)).background(ECard).border(Look.line, ELine, RoundedCornerShape(16.dp))
+                                        .toggleable(value = on, role = Role.Switch) { Engine.sightSave(mapOf(k to if (it) "1" else "0"), "$l: ${if (it) "on" else "off"}.") }
+                                        .heightIn(min = 64.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(l, color = EFg, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f).padding(end = 12.dp))
+                                    Switch(checked = on, onCheckedChange = null)
+                                }
+                            }
+                        }
+                    }
+                }
                 "account" -> {
                     item { row("Signed in as $name", if (Api.atHome) "At home, straight to the PC" else "Through ${Api.base().removePrefix("http://").removePrefix("https://")}") {} }
                     item { row("Change the PC address", "") { Engine.screen = "server" } }
@@ -1748,12 +1939,13 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
                                 Text(name.take(1).uppercase(), color = EInk, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                             }
                             Column(Modifier.padding(start = 14.dp)) {
-                                Text(name, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                                Text(name, color = EFg, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                                 Text("Signed in", color = ESub, fontSize = 15.sp)
                             }
                         }
                     }
                     item { card("Account", "Signed in as $name", Ic.Person) { W.go(Page("settings", "account")) } }
+                    item { card("How you see the screen", sightName(Engine.sight), Ic.Eye) { W.go(Page("settings", "sight")) } }
                     item { card("Playback", "Video quality ${Engine.qualityLabel()}", Ic.Play) { W.go(Page("settings", "playback")) } }
                     item { card("Play on", dev, Ic.Cast) { castOpen = true } }
                     if (Engine.devHelp.isNotEmpty()) item { Text(Engine.devHelp, color = ESub, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)) }

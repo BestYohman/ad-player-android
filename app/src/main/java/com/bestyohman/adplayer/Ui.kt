@@ -1,5 +1,7 @@
 package com.bestyohman.adplayer
 
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.layout.heightIn
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -110,7 +112,7 @@ fun AppRoot(act: MainActivity) {
         when (Engine.screen) {
             "server" -> ServerScreen()
             "signin" -> SignInScreen()
-            "main" -> if (Engine.watchUI) WatchApp(act) else MainScreen(act)
+            "main" -> if (!Engine.sightChosen) SightScreen() else if (Engine.watchUI) WatchApp(act) else MainScreen(act)
             else -> Column(
                 Modifier.fillMaxSize().safeDrawingPadding(), verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -404,6 +406,26 @@ private fun AccountSection() {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { Engine.signOut() }) { Text("Sign out") }
             OutlinedButton(onClick = { Engine.screen = "server" }) { Text("Change the PC address") }
+        }
+        Text("How you see the screen", style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = 16.dp, bottom = 4.dp).semantics { heading() })
+        Column(Modifier.selectableGroup()) {
+            listOf(
+                "none" to "No vision: the audio-only layout, made for TalkBack.",
+                "low" to "Low vision: big text and buttons, high contrast.",
+                "full" to "Full vision: posters and rows, like other media apps."
+            ).forEach { (k, l) ->
+                val on = Engine.sight == k
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                        .selectable(selected = on, role = Role.RadioButton) { if (!on) Engine.sightSave(mapOf("sight" to k), sightSaid(k)) }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(selected = on, onClick = null)
+                    Text(l, Modifier.padding(start = 12.dp))
+                }
+            }
         }
     }
 }

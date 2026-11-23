@@ -38,7 +38,62 @@ object Engine {
     var bootError by mutableStateOf("")
     var me by mutableStateOf<JSONObject?>(null)
     val role: String get() = me?.s("role")?.ifEmpty { "listen" } ?: "listen"
-    val watchUI: Boolean get() = role == "watch"
+    /** How she sees the screen (kept on the PC for each person, as on the web page): "none" = the audio-only layout
+     *  (made for TalkBack), "low" = big text and high contrast, "full" = posters and rows. */
+    val sight: String get() = me?.s("sight")?.takeIf { it == "none" || it == "low" || it == "full" } ?: if (role == "watch") "full" else "none"
+    val sightChosen: Boolean get() = me?.b("sight_chosen") == true
+    /** Low vision's own settings: size (normal, large, larger, largest), screen (dark, light, yellow), video, focus, still, posters. */
+    fun sOpt(k: String): String {
+        val o = me?.optJSONObject("sight_opts")
+        val d = mapOf("size" to "large", "screen" to "dark", "video" to "1", "focus" to "1", "still" to "1", "posters" to "1")
+        val v = o?.opt(k) ?: return d[k] ?: ""
+        return when (v) { true -> "1"; false -> "0"; else -> v.toString() }
+    }
+    fun sOn(k: String) = sOpt(k).let { it == "1" || it == "true" }
+    val watchUI: Boolean get() = sight != "none"
+    /** The video can be played on this phone (full vision, or low vision with the video on). */
+    val videoOK: Boolean get() = role == "watch" && (sight == "full" || (sight == "low" && sOn("video")))
+
+    /** Saves how she sees the screen (or a low-vision setting) on the PC; used at once. */
+    fun sightSave(ch: Map<String, String>, msg: String = "") {
+        val m = JSONObject((me ?: JSONObject()).toString())
+        val o = m.optJSONObject("sight_opts") ?: JSONObject()
+        ch.forEach { (k, v) ->
+            when (k) {
+                "sight" -> { m.put("sight", v); m.put("sight_chosen", true) }
+                "size", "screen" -> o.put(k, v)
+                else -> o.put(k, v == "1")
+            }
+        }
+        m.put("sight_opts", o)
+        val wasVideo = videoOK
+        me = m; Prefs.put("me", m.toString())
+        if (msg.isNotEmpty()) say(msg)
+        if (wasVideo != videoOK) videoSwitched()
+        launchSafe {
+            val d = Api.post("/api/play/sight", ch)
+            if (d.err().isNotEmpty()) { say(d.err()); return@launchSafe }
+            if (d.has("sight")) {
+                val n = JSONObject((me ?: JSONObject()).toString())
+                n.put("sight", d.s("sight")); n.put("sight_chosen", d.b("sight_chosen"))
+                d.optJSONObject("sight_opts")?.let { n.put("sight_opts", it) }
+                me = n; Prefs.put("me", n.toString())
+            }
+        }
+    }
+
+    /** The video turned on or off (low vision): the phone's choice under Play on follows, and what plays on this
+     *  phone carries on from the same place the other way (as on the web page). */
+    private fun videoSwitched() {
+        val on = videoOK
+        var cur: Triple<String, String, Double>? = null
+        if (tg == null && on && mode == Mode.AUDIO) loc?.let { if (it.ready) cur = Triple(it.item, it.title, exo.currentPosition / 1000.0) }
+        if (tg == null && !on && mode == Mode.VIDEO) vd?.let { cur = Triple(it.item, it.title, exo.currentPosition / 1000.0) }
+        if (dev == "__video" && !on) dev = "__local" else if (dev == "__local" && on) dev = "__video"
+        Prefs.dev = dev
+        launchSafe { loadDevices(false) }
+        cur?.let { (id, t, at) -> if (on) videoStart(id, t, false, at = at) else listenStart(id, t, false, at = at) }
+    }
     var message by mutableStateOf("")
     var announcer: ((String) -> Unit)? = null
     var foreground = false
@@ -182,7 +237,7 @@ object Engine {
 
     suspend fun loadDevices(announce: Boolean) {
         val phones = mutableListOf<Dev>()
-        if (role == "watch") phones.add(Dev("__video", "This phone - the video"))
+        if (videoOK) phones.add(Dev("__video", "This phone - the video"))
         phones.add(Dev("__local", "This phone - just the audio"))
         var tvs = listOf<Dev>()
         var other = ""
@@ -444,7 +499,7 @@ object Engine {
 
     /** Just the audio (the AD track, or the soundtrack when playing together and there's no AD).
      *  any: she chose one without audio description (its soundtrack is played then). */
-    fun listenStart(id: String, label: String, resume: Boolean, tgPos: Double? = null, hint: Double = -1.0, any: Boolean = false) {
+    fun listenStart(id: String, label: String, resume: Boolean, tgPos: Double? = null, hint: Double = -1.0, any: Boolean = false, at: Double? = null) {
         stopPhone(true)
         val me = Loc(id, label, tgPos != null)
         loc = me; mode = Mode.AUDIO
@@ -452,7 +507,7 @@ object Engine {
         val off = Offline.done(id, "audio")
         if (off != null) {                                  // downloaded: play it from the phone
             me.title = off.title; me.hasNext = off.hasNext; me.runtime = off.runtime; me.local = true
-            me.resumeS = tgPos ?: if (resume) (if (off.posAt > 0 || hint <= 0) off.pos else hint) else 0.0
+            me.resumeS = tgPos ?: at ?: if (resume) (if (off.posAt > 0 || hint <= 0) off.pos else hint) else 0.0
             playUrl(Uri.fromFile(java.io.File(off.file)).toString(), me.title, "Audio description", me.resumeS, !me.tg)
             me.ready = true
             if (!me.tg) say("Playing ${me.title} from the download" + (if (me.resumeS > 5) " from ${fmtTime(me.resumeS)}" else "") + ".")
@@ -475,7 +530,7 @@ object Engine {
             me.hasNext = d.b("has_next")
             me.hasAd = d.boolOrNull("has_ad") != false
             me.runtime = d.d("runtime_ticks") / 1e7
-            me.resumeS = tgPos ?: if (resume) d.d("resume_ticks") / 1e7 else 0.0
+            me.resumeS = tgPos ?: at ?: if (resume) d.d("resume_ticks") / 1e7 else 0.0
             me.job = d.s("id")
             var askedAgain = false
             var fails = 0
@@ -1435,7 +1490,7 @@ object Engine {
         if (!isPhone) pickDevice(if (tgMode() == "video" && devices.any { it.id == "__video" }) "__video" else "__local")
     }
 
-    private fun tgMode() = if (role == "watch" && dev != "__local") "video" else "audio"
+    private fun tgMode() = if (videoOK && dev != "__local") "video" else "audio"
 
     private fun tgStartVideo(it: Item, resume: Boolean) {
         if (tg != null) tgLeave(true)

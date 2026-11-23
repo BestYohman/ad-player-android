@@ -72,6 +72,8 @@ def info(i):
     return {"error": "Not found"}
 
 DL = {}
+SIGHT = {"sight": "full", "sight_chosen": False,
+         "sight_opts": {"size": "large", "screen": "dark", "video": True, "focus": True, "still": True, "posters": True}}
 
 def route(path, q):
     if path == "/api/play/books/book":
@@ -88,7 +90,13 @@ def route(path, q):
         return {"id": "dl1", "state": "ready", "progress": 100, "url": "/media/test.mp4", "bytes": 826788, "runtime_ticks": 78000000000}
     if path in ("/api/play/download/done", "/api/play/download/cancel"): return {"message": "OK"}
     if path == "/api/play/login": return {"token": "tok", "message": "Signed in as Yoh."}
-    if path == "/api/play/me": return {"signed_in": True, "name": "Yoh", "role": "watch", "server_id": "mock", "home_urls": []}
+    if path == "/api/play/me": return dict({"signed_in": True, "name": "Yoh", "role": "watch", "server_id": "mock", "home_urls": []}, **SIGHT)
+    if path == "/api/play/sight":
+        for k, v in q.items():
+            if k == "sight": SIGHT["sight"] = v; SIGHT["sight_chosen"] = True
+            elif k in ("size", "screen"): SIGHT["sight_opts"][k] = v
+            else: SIGHT["sight_opts"][k] = v == "1"
+        return dict(SIGHT)
     if path == "/api/play/devices": return {"devices": [], "other": []}
     if path == "/api/play/together/list": return {"rooms": []}
     if path == "/api/play/home":

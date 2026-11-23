@@ -38,7 +38,9 @@ adb shell input text "yoh"; sleep 1
 adb shell input keyevent 66; sleep 1
 adb shell input text "pw"; sleep 1
 adb shell input keyevent 66
-shot 01_home 10
+shot 00b_sight 8
+tapon "Full vision"
+shot 01_home 8
 adb shell input swipe 540 1900 540 700 600
 shot 02_home_more 3
 adb shell input swipe 540 1900 540 700 600
@@ -128,4 +130,45 @@ adb shell input tap 1200 540
 shot 18_player_landscape_tap 2
 adb shell input keyevent 4
 shot 19_movie_landscape 3
+adb shell input keyevent 4
+adb shell settings put system user_rotation 0
+sleep 3
+# how she sees the screen: low vision (dark, light, yellow on black), then no vision
+open "kind=settings"
+sleep 3
+tapon "How you see the screen"
+shot 20_sight_page 3
+tapon "Low vision"
+shot 21_low_sight_page 4
+adb shell input swipe 540 1900 540 700 600
+shot 22_low_sight_more 3
+adb shell input swipe 540 1900 540 700 600
+shot 23_low_sight_end 3
+tapon Home
+shot 24_low_home 6
+adb shell input swipe 540 1900 540 700 600
+shot 25_low_home_more 3
+tapon "Screen: Dark"
+shot 26_low_light 4
+tapon "Screen: Light"
+shot 27_low_yellow 4
+tapon "Larger text"
+shot 28_low_largest 4
+open "kind=item&id=m_magic&extra=Movie&title=Moonlit%20Magic%202"
+shot 29_low_movie 5
+open "kind=item&id=s_chase&extra=Series&title=The%20Great%20Chase"
+shot 30_low_series 5
+tapon Movies
+shot 31_low_movies 5
+tapon You
+shot 32_low_you 3
+tapon "How you see the screen"
+sleep 3
+tapon "No vision"
+shot 33_no_vision 5
+adb shell input swipe 540 1900 540 300 600
+adb shell input swipe 540 1900 540 300 600
+adb shell input swipe 540 1900 540 300 600
+shot 34_no_vision_end 3
+dump; cp shots/ui.xml shots/ui_no_vision.xml
 adb logcat -d -t 400 > shots/logcat.txt
