@@ -34,6 +34,7 @@ tapon EditText; sleep 2
 adb shell input text "yoh"; sleep 1
 key 66; adb shell input text "pw"; sleep 1
 key 66
+sleep 3; key 111          # (the keyboard the sign-in left open)
 shot tv_01_sight 8
 key 20; key 20
 shot tv_01b_sight_focus 2
@@ -48,9 +49,11 @@ shot tv_05_movie 5
 tapon Play
 sleep 8
 key 19
+dump; grep -q 'resource-id="com.android.inputmethod\|leanback.*ime' shots/ui.xml && key 111
 shot tv_06_player_controls 3
 tapon "Continue on a phone"
 shot tv_07_send_to_phone 6
+dump; cp shots/ui.xml shots/ui_send.xml
 key 4
 sleep 2
 key 4
