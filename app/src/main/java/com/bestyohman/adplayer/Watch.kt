@@ -471,7 +471,7 @@ private fun BottomNav() {
         ) {
             listOf(
                 Triple("home", "Home", Ic.Home), Triple("shows", "Shows", Ic.Tv), Triple("movies", "Movies", Ic.Movie),
-                Triple("books", "Books", Ic.Headphones), Triple("you", "You", Ic.Person)
+                Triple("books", "Books", Ic.Headphones), Triple("you", "Settings", Ic.Settings)
             ).forEach { (k, l, ic) ->
                 val on = W.tab == k
                 Column(
@@ -1330,7 +1330,8 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
             val j = info.j
             val playable = ep || info.type == "Movie"
             if (Look.low) {
-                val bd = info.backdrop.ifEmpty { j.s("series_backdrop") }.ifEmpty { info.thumb }
+                // an episode: its own picture from the episode (not the show's)
+                val bd = (if (ep) info.thumb.ifEmpty { j.s("series_backdrop") } else info.backdrop.ifEmpty { j.s("series_backdrop") }).ifEmpty { info.thumb }
                 if (bd.isNotEmpty() && Look.posters) item {
                     AsyncImage(picUrl(bd, 1280), null, Img.loader, Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(ECard), contentScale = ContentScale.Crop)
                 }
@@ -1345,18 +1346,22 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                     }
                 }
             } else item {
-                val bd = info.backdrop.ifEmpty { j.s("series_backdrop") }
+                // an episode: its own picture from the episode (not the show's)
+                val bd = if (ep) info.thumb.ifEmpty { j.s("series_backdrop") } else info.backdrop.ifEmpty { j.s("series_backdrop") }
+                val big = bd.isNotEmpty() && Look.posters          // the big picture only, no cover on the left
                 Box(Modifier.fillMaxWidth()) {
-                    Box(Modifier.fillMaxWidth().height(220.dp).background(ECard)) {
+                    Box(Modifier.fillMaxWidth().height(if (big) 250.dp else 220.dp).background(ECard)) {
                         if (bd.isNotEmpty() && Look.posters) AsyncImage(picUrl(bd, 1920), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         // The bottom of the picture fades gradually to the page's black so the names on it stay readable.
                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                             0f to Color(0x000B0D11), 0.35f to Color(0x660B0D11), 0.65f to Color(0xD90B0D11), 1f to EBg)))
                     }
-                    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 80.dp), verticalAlignment = Alignment.Bottom) {
-                        val pic = if (ep) info.thumb.ifEmpty { info.poster } else info.poster.ifEmpty { info.thumb }
-                        Poster(info, pic, if (ep) 600 else 360, Modifier.width(if (ep) 180.dp else 120.dp).aspectRatio(if (ep) 16f / 9f else 2f / 3f), info.name)
-                        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = if (big) 130.dp else 80.dp), verticalAlignment = Alignment.Bottom) {
+                        if (!big) {
+                            val pic = if (ep) info.thumb.ifEmpty { info.poster } else info.poster.ifEmpty { info.thumb }
+                            Poster(info, pic, if (ep) 600 else 360, Modifier.width(if (ep) 180.dp else 120.dp).aspectRatio(if (ep) 16f / 9f else 2f / 3f), info.name)
+                        }
+                        Column(Modifier.weight(1f).padding(start = if (big) 0.dp else 14.dp)) {
                             // The show, the season and episode, and the name are one heading for screen readers.
                             Column(Modifier.semantics(mergeDescendants = true) { heading() }) {
                                 if (ep && info.seriesName.isNotEmpty()) {

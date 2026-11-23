@@ -90,7 +90,7 @@ fun TvRail() {
         }
         listOf(
             Triple("home", "Home", Ic.Home), Triple("search", "Search", Ic.Search), Triple("shows", "Shows", Ic.Tv),
-            Triple("movies", "Movies", Ic.Movie), Triple("books", "Books", Ic.Headphones), Triple("you", "You", Ic.Person)
+            Triple("movies", "Movies", Ic.Movie), Triple("books", "Books", Ic.Headphones), Triple("you", "Settings", Ic.Settings)
         ).forEachIndexed { i, (k, l, ic) ->
             val on = W.tab == k || (k == "search" && W.stack.lastOrNull()?.kind == "search")
             Row(
