@@ -124,6 +124,10 @@ open "kind=item&id=e1&extra=Episode&title=The%20Race%20Begins"
 shot 15d_episode_page 5
 open "kind=settings"
 shot 16_settings 3
+tapon "Server settings"
+shot 16b_server_settings 5
+adb shell input keyevent 4
+sleep 1
 adb shell input keyevent 4
 open "kind=item&id=m_magic&extra=Movie&title=Moonlit%20Magic%202"
 sleep 3

@@ -2183,6 +2183,8 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
                     item { card("Downloads", "What's on this phone, and how it downloads", Ic.Download) { W.go(Page("settings", "downloads")) } }
                     item { card("Favorites", "Shows and movies you marked", Ic.HeartFull) { W.go(Page("favorites")) } }
                     item { card("Audio description", "Requests, and what has none yet", Ic.Ear) { W.go(Page("settings", "ad")) } }
+                    // whoever runs the server: its own settings page, inside the app
+                    if (ServerSettings.allowed) item { card("Server settings", "AD files, the queue, people and the server's settings", Ic.Settings) { ServerSettings.open = true } }
                     item { card("This app", "Version ${Update.mine}" + if (Update.available.isNotEmpty()) " · ${Update.available} is ready" else "", Ic.Info) { W.go(Page("settings", "app")) } }
                     item { Box(Modifier.padding(16.dp)) { WebBtn("Sign out") { Engine.signOut() } } }
                 }

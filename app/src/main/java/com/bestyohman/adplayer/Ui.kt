@@ -125,6 +125,7 @@ fun AppRoot(act: MainActivity) {
     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.LocalIndication provides
         (if (Engine.isTv) TvFocusIndication else androidx.compose.foundation.LocalIndication.current)) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        if (ServerSettings.open && Engine.screen == "main") { ServerSettingsScreen(); return@Surface }
         when (Engine.screen) {
             "server" -> ServerScreen()
             "signin" -> SignInScreen()
@@ -427,6 +428,7 @@ private fun AccountSection() {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { Engine.signOut() }) { Text("Sign out") }
             OutlinedButton(onClick = { Engine.screen = "server" }) { Text("Change the PC address") }
+            if (ServerSettings.allowed) OutlinedButton(onClick = { ServerSettings.open = true }) { Text("Server settings") }
         }
         Text("How you see the screen", style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(top = 16.dp, bottom = 4.dp).semantics { heading() })

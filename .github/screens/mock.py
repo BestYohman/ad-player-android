@@ -92,7 +92,8 @@ def route(path, q):
         return {"id": "dl1", "state": "ready", "progress": 100, "url": "/media/test.mp4", "bytes": 826788, "runtime_ticks": 78000000000}
     if path in ("/api/play/download/done", "/api/play/download/cancel"): return {"message": "OK"}
     if path == "/api/play/login": return {"token": "tok", "message": "Signed in as Yoh."}
-    if path == "/api/play/me": return dict({"signed_in": True, "name": "Yoh", "role": "watch", "server_id": "mock", "home_urls": []}, **SIGHT)
+    if path == "/api/play/me": return dict({"signed_in": True, "name": "Yoh", "role": "watch", "server_id": "mock", "home_urls": [], "admin": True}, **SIGHT)
+    if path == "/api/play/admin/link": return {"url": "/api/play/admin/open/x"}
     if path == "/api/play/sight":
         for k, v in q.items():
             if k == "sight": SIGHT["sight"] = v; SIGHT["sight_chosen"] = True
@@ -185,6 +186,9 @@ class H(http.server.BaseHTTPRequestHandler):
         if m: return self.file(os.path.join(IMG, f"ch_{m.group(1)}.jpg"), "image/jpeg")
         m = re.match(r"/api/play/books/cover/(\w+)$", u.path)
         if m: return self.file(os.path.join(IMG, f"book_{m.group(1)}.jpg"), "image/jpeg")
+        if u.path.startswith("/api/play/admin/open/"):          # (the server's settings page, as a stand-in)
+            return self.send(200, b"<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><body style='background:#0b0d11;color:#fff;font:18px system-ui;padding:16px'>"
+                             b"<h1>AD Player Server</h1><p>Status - Inbox - Queue - Requests - People - Settings</p><p>Signed in as Yoh.</p></body>", "text/html")
         if u.path == "/media/test.mp4": return self.file(os.path.join(HERE, "test.mp4"), "video/mp4")
         if u.path == "/media/book.mp3": return self.file(os.path.join(HERE, "book.mp3"), "audio/mpeg")
         r = route(u.path, q)
