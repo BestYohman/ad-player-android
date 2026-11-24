@@ -123,6 +123,11 @@ fun PlayerScreen(act: MainActivity) {
         Modifier.fillMaxSize().background(Color.Black)
             .focusRequester(keys)
             .onPreviewKeyEvent { e ->
+                // a TV: Back with the buttons showing only hides them (taken here, before the app's Back sees it)
+                if (Engine.isTv && e.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK && shown && !locked && sheet.isEmpty() && dialog.isEmpty()) {
+                    if (e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) shown = false
+                    return@onPreviewKeyEvent true
+                }
                 if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val k = e.nativeKeyEvent.keyCode
                 if (shown && !locked) {                // the buttons are showing: the arrows move between them
