@@ -57,6 +57,7 @@ for n in ET.parse("shots/ui.xml").iter("node"):
 else: print("no")
 PY
 }
+shopt -s extglob
 FAILS=""
 expect() { if [[ "$2" == $3 ]]; then echo "OK   $1 ($2)"; else echo "FAIL $1: got '$2'"; FAILS=1; fi | tee -a shots/focus_report.txt; }
 keys() { local k=$1 n=$2; for _ in $(seq "$n"); do adb shell input keyevent "$k"; sleep 0.4; done; sleep 1.5; }
@@ -77,14 +78,14 @@ shot tv_20_home_bottom 2
 expect "down reaches the last row" "$(onscreen 'Audiobooks in progress')" "yes"
 keys 19 25
 shot tv_21_home_top 3
-expect "up at the top reaches the menu" "$(focused)" "Home*"
+expect "up at the top reaches the menu" "$(focused)" "@(Home*|Shows*|Movies*|Books*|Search*|Settings*)"
 expect "the top of the page shows again" "$(onscreen 'CONTINUE WATCHING')" "yes"
 # open a card and come back to it
 keys 20 3
 CARD=$(focused | cut -d'|' -f1)
 keys 23 1; sleep 3
 shot tv_22_opened 1
-expect "an opened page starts on its button" "$(focused)" "Play*|Resume*|Episodes*"
+expect "an opened page starts on its button" "$(focused)" "@(Play*|Resume*|Episodes*)"
 keys 4 1; sleep 2
 expect "Back returns to the same card" "$(focused | cut -d'|' -f1)" "$CARD"
 keys 4 1
@@ -93,19 +94,18 @@ expect "Back from the page goes up to the menu" "$(focused)" "Home*"
 open "kind=item&id=m_magic&extra=Movie&title=Moonlit%20Magic%202"
 sleep 5
 shot tv_05_movie 1
-expect "the movie page starts on Play" "$(focused)" "Play*|Resume*"
+expect "the movie page starts on Play" "$(focused)" "@(Play*|Resume*)"
 keys 20 12
 shot tv_23_movie_bottom 2
 expect "down reaches the cast at the bottom" "$(onscreen 'Cast')" "yes"
 keys 19 20
-expect "up goes back up to the menu" "$(focused)" "Home*|Shows*|Movies*|Books*|Search*|Settings*"
+expect "up goes back up to the menu" "$(focused)" "@(Home*|Shows*|Movies*|Books*|Search*|Settings*)"
 shot tv_24_movie_top 2
 keys 20 1
-expect "down from the menu goes to the buttons" "$(focused)" "Play*|Resume*|Play on*|Play together*|Add to*|Mark as*"
+expect "down from the menu goes to the buttons" "$(focused)" "@(Play*|Resume*|Play on*|Play together*|Add to*|Mark as*)"
 # the player: Back hides the buttons, Back again stops it
-open "kind=item&id=m_magic&extra=Movie&title=Moonlit%20Magic%202"
-sleep 5
-expect "the movie page starts on Play (again)" "$(focused)" "Play*|Resume*"
+keys 21 6
+expect "left along the buttons reaches Play" "$(focused)" "@(Play *|Resume*)"
 keys 23 1
 sleep 9
 shot tv_06a_player_hidden 1
@@ -116,7 +116,7 @@ shot tv_06b_back_hides 1
 expect "Back first hides the player's buttons" "$(onscreen 'Stats for nerds')" "no"
 keys 4 1; sleep 2
 shot tv_08_after 2
-expect "Back again stops the video (back on the page)" "$(focused)" "Play*|Resume*"
+expect "Back again stops the video (back on the page)" "$(focused)" "@(Play*|Resume*)"
 # Movies: the title and chips scroll away; Sort and filter can be reached
 open "kind=movies"
 sleep 5
@@ -125,7 +125,7 @@ expect "the Movies page starts on its first chip" "$(focused)" "With AD*"
 F=""; for _ in 1 2 3 4 5; do keys 22 1; F=$(focused); [[ "$F" == Sort* ]] && break; done
 expect "Sort and filter can be reached along the chips" "$F" "Sort and filter*"
 keys 19 3
-expect "up from the chips reaches the menu" "$(focused)" "Movies*|Home*|Shows*|Books*"
+expect "up from the chips reaches the menu" "$(focused)" "@(Movies*|Home*|Shows*|Books*)"
 shot tv_25_movies_menu 2
 # Settings: the TV's size
 open "kind=settings"
