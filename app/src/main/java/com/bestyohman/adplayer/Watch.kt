@@ -422,7 +422,7 @@ private fun TopBar(title: String?, openDrawer: () -> Unit, solid: Boolean = true
         if (!Engine.isTv) Box(Modifier.fillMaxWidth().then(strip).statusBarsPadding().padding(start = 10.dp, end = 10.dp, top = 8.dp)) {
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 60.dp).clip(RoundedCornerShape(20.dp))
-                    .background(if (Look.low) EBg else if (floating && solid) Color(0xD912151C) else if (solid) Color(0xF212151C) else Color(0x5C12151C))
+                    .background(if (Look.low) EBg else if (floating && solid) Color(0xEB12151C) else if (solid) Color(0xF212151C) else Color(0x5C12151C))
                     .border(Look.line, if (Look.low) ELine else Color(0x17FFFFFF), RoundedCornerShape(20.dp)).padding(start = 12.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1425,9 +1425,14 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
     }
     val season = seasons?.getOrNull(seasonI)
     val (eps, eerr) = rememberData(season?.let { "/api/play/list?kind=episodes&parent=${enc(it.id)}" })
+    // full vision on a phone: the bar floats over the big picture and the page scrolls under it (as on the web page)
+    val float = !Look.low && !Engine.isTv
+    val lift = if (float) 40.dp else 0.dp
     Column(Modifier.fillMaxSize()) {
-        TopBar(null, openDrawer, heading = false)
+        if (!float) TopBar(null, openDrawer, heading = false)
+        Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize().tvScrollEnds(ls), state = ls, contentPadding = PaddingValues(bottom = 190.dp)) {
+            if (float && info == null) item { Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars).height(84.dp)) }
             val ep = p.extra == "Episode" || info?.type == "Episode"
             val head = if (info == null) p.title else if (ep && info.seriesName.isNotEmpty()) "${info.seriesName}, ${info.epTitle()}" else info.name
             // Full vision puts the names on the picture below, so the title line at the top is only for low vision (and while loading).
@@ -1459,13 +1464,13 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                 val bd = if (ep) info.thumb.ifEmpty { j.s("series_backdrop") } else info.backdrop.ifEmpty { j.s("series_backdrop") }
                 val big = bd.isNotEmpty() && Look.posters          // the big picture only, no cover on the left
                 Box(Modifier.fillMaxWidth()) {
-                    Box(Modifier.fillMaxWidth().height(if (big) 250.dp else 220.dp).background(ECard)) {
+                    Box(Modifier.fillMaxWidth().height((if (big) 250.dp else 220.dp) + lift).background(ECard)) {
                         if (bd.isNotEmpty() && Look.posters) AsyncImage(picUrl(bd, 1920), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         // The bottom of the picture fades gradually to the page's black so the names on it stay readable.
                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                             0f to Color(0x000B0D11), 0.35f to Color(0x660B0D11), 0.65f to Color(0xD90B0D11), 1f to EBg)))
                     }
-                    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = if (big) 130.dp else 80.dp), verticalAlignment = Alignment.Bottom) {
+                    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = (if (big) 130.dp else 80.dp) + lift), verticalAlignment = Alignment.Bottom) {
                         if (!big) {
                             val pic = if (ep) info.thumb.ifEmpty { info.poster } else info.poster.ifEmpty { info.thumb }
                             Poster(info, pic, if (ep) 600 else 360, Modifier.width(if (ep) 180.dp else 120.dp).aspectRatio(if (ep) 16f / 9f else 2f / 3f), info.name)
@@ -1583,6 +1588,11 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                     }
                 }
             }
+        }
+        if (float) {
+            val scrolled by remember { derivedStateOf { ls.firstVisibleItemIndex > 0 || ls.firstVisibleItemScrollOffset > 120 } }
+            TopBar(null, openDrawer, solid = scrolled, heading = false, floating = true)
+        }
         }
     }
     if (dl && info != null) DownloadChoices(info) { dl = false }
