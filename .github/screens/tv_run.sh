@@ -110,10 +110,12 @@ keys 23 1
 sleep 9
 shot tv_06a_player_hidden 1
 key 19
-shot tv_06_player_controls 1
-keys 4 1
-shot tv_06b_back_hides 1
+shot tv_06_player_controls 0
+expect "up shows the player's buttons" "$(onscreen 'Stats for nerds')" "yes"
+adb shell input keyevent 4; sleep 1      # (quickly: the buttons hide by themselves after a few seconds)
 expect "Back first hides the player's buttons" "$(onscreen 'Stats for nerds')" "no"
+shot tv_06b_back_hides 0
+expect "the video is still playing after the first Back" "$(onscreen 'Resume')" "no"
 keys 4 1; sleep 2
 shot tv_08_after 2
 expect "Back again stops the video (back on the page)" "$(focused)" "@(Play*|Resume*)"

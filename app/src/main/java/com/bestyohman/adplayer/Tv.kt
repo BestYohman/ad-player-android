@@ -119,6 +119,7 @@ object TvNav {
     var fromMenu = false                             // the page was opened from the menu (the remote stays there)
     var restoreUntil = 0L                            // a page just opened: its remembered card may take the remote until then
     val last = HashMap<Page, String>()               // page -> the card or button the remote was last on
+    var hideControls: (() -> Boolean)? = null        // the video player: hides its buttons (true if they were showing)
 }
 
 /** The page being shown (for remembering where the remote was on it). */

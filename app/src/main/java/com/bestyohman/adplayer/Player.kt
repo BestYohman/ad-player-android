@@ -47,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -110,8 +111,11 @@ fun PlayerScreen(act: MainActivity) {
         }
     }
     val touch = { poke = System.currentTimeMillis() }
-    // a TV: Back first hides the buttons; Back again stops the video
-    androidx.activity.compose.BackHandler(enabled = Engine.isTv && shown && !locked && sheet.isEmpty() && dialog.isEmpty()) { shown = false }
+    // a TV: Back first hides the buttons; Back again stops the video (asked by the app's one Back handler)
+    DisposableEffect(Unit) {
+        TvNav.hideControls = { if (shown && !locked && sheet.isEmpty() && dialog.isEmpty()) { shown = false; true } else false }
+        onDispose { TvNav.hideControls = null }
+    }
     val keys = remember { androidx.compose.ui.focus.FocusRequester() }
     LaunchedEffect(shown, locked) { if (!shown || locked) try { keys.requestFocus() } catch (e: Exception) { } }
     LaunchedEffect(shown) { if (Engine.isTv) { delay(150); act.hideKeyboard() } }       // (a TV's keyboard never belongs over the video)

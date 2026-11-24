@@ -292,7 +292,8 @@ fun WatchApp(act: MainActivity) {
         }
         BackHandler(enabled = W.player || W.stack.size > 1 || W.tab != "home" || (Engine.isTv && !TvNav.navIn)) {
             when {
-                Engine.isTv && W.player && video -> Engine.stopPressed { W.player = false }    // a TV: Back ends the video (no small player to go to)
+                // a TV: Back first hides the player's buttons, then ends the video (no small player to go to)
+                Engine.isTv && W.player && video -> if (TvNav.hideControls?.invoke() != true) Engine.stopPressed { W.player = false }
                 // a TV, on a menu page: Back goes up to the menu first (as on other TV apps); Back again leaves
                 Engine.isTv && !W.player && W.stack.size == 1 && !TvNav.navIn -> runCatching { TvNav.navFr.requestFocus() }
                 else -> W.back()
