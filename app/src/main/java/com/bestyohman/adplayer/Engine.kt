@@ -219,6 +219,7 @@ object Engine {
     }
 
     fun signedOut(msg: String) {
+        if (tg != null) { tgJob?.cancel(); tg = null; inviting = null; stopPhone(true) }   // play together can't go on signed out (and its beats would sign out again)
         Prefs.token = ""
         Api.forgetLanKey()
         me = null
@@ -1861,7 +1862,7 @@ object Engine {
         t.rejoining = true
         scope.launch {
             val d = try {
-                Api.post("/api/play/together/join", mapOf("cid" to Prefs.cid, "room" to t.room, "mode" to tgMode()))
+                Api.post("/api/play/together/join", mapOf("cid" to Prefs.cid, "room" to t.room, "mode" to tgMode(), "dev" to devName))
             } catch (e: ApiError) {
                 t.rejoining = false
                 if (e.login && tg === t) signedOut(e.message ?: "")

@@ -4,6 +4,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -275,7 +276,7 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
                         Box(Modifier.fillMaxWidth(f).fillMaxHeight().background(Color.White))
                     }
                 },
-                modifier = Modifier.fillMaxWidth().height(if (land) 28.dp else 36.dp).semantics { contentDescription = "Position ${clock(shownPos)} of ${clock(dur)}" }
+                modifier = Modifier.focusProperties { canFocus = !Engine.isTv }.fillMaxWidth().height(if (land) 28.dp else 36.dp).semantics { contentDescription = "Position ${clock(shownPos)} of ${clock(dur)}" }
             )
             Row(Modifier.fillMaxWidth()) {
                 Text(clock(shownPos), color = Color(0xFFBDBDBD), fontSize = 16.sp)
@@ -288,7 +289,7 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
             }
             Row(Modifier.fillMaxWidth().padding(top = if (land) 2.dp else 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (v.hasNext || ep) Btn(Ic.Next, "Next episode") { Engine.cmd("next"); touch() }
-                Btn(Ic.Lock, "Lock the controls") { lock() }
+                if (!Engine.isTv) Btn(Ic.Lock, "Lock the controls") { lock() }      // (a remote has no way to unlock)
                 Btn(Ic.Speed, "Speed") { if (Engine.tg != null) Engine.say("The speed stays the same while playing together.") else openDialog("speed") }
                 Btn(Ic.Settings, "Settings") { openDialog("settings") }
                 Btn(Ic.Rotate, "Turn sideways") { act.toggleLandscape(); touch() }
@@ -358,7 +359,7 @@ private fun WebControls(v: Engine.Vid, info: Item?, act: MainActivity, touch: ()
                             Box(Modifier.fillMaxWidth(f).fillMaxHeight().background(EGreen))
                         }
                     },
-                    modifier = Modifier.weight(1f).padding(horizontal = 10.dp).height(40.dp)
+                    modifier = Modifier.focusProperties { canFocus = !Engine.isTv }.weight(1f).padding(horizontal = 10.dp).height(40.dp)
                         .semantics { contentDescription = "Position ${clock(shownPos)} of ${clock(dur)}" }
                 )
                 Text("-" + clock(dur - shownPos), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
@@ -369,7 +370,7 @@ private fun WebControls(v: Engine.Vid, info: Item?, act: MainActivity, touch: ()
                 if (v.hasNext || ep) NamedBtn(Ic.Next, "Next episode") { Engine.cmd("next"); touch() }
                 if (Engine.tg == null) NamedBtn(Ic.Subtitles, "Audio and subtitles") { W.trk = v.item }
                 NamedBtn(Ic.Rotate, "Full screen") { act.toggleLandscape(); touch() }
-                NamedBtn(Ic.Lock, "Lock the screen") { lock() }
+                if (!Engine.isTv) NamedBtn(Ic.Lock, "Lock the screen") { lock() }
                 NamedBtn(Ic.Speed, "Speed") { if (Engine.tg != null) Engine.say("The speed stays the same while playing together.") else openDialog("speed") }
                 NamedBtn(Ic.Settings, "Settings") { openDialog("settings") }
                 NamedBtn(Ic.Info, "Info") { openSheet("info") }

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -290,7 +291,7 @@ fun BookmarkSheet(bookId: String, title: String, close: () -> Unit) {
             item {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Bookmarks", color = EFg, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    if (here != null) WhitePill("Add here", Ic.Bookmark, Modifier.height(44.dp)) { Engine.addBookmark() }
+                    if (here != null) WhitePill("Add here", Ic.Bookmark, Modifier.heightIn(min = 44.dp)) { Engine.addBookmark() }
                 }
             }
             val list = if (Engine.bookmarksFor == bookId) Engine.bookmarks else emptyList()

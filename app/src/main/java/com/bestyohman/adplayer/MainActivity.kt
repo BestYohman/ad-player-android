@@ -53,9 +53,11 @@ class MainActivity : ComponentActivity() {
             (getSystemService(android.app.UiModeManager::class.java)?.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION)
         setContent { AppTheme { AppRoot(this) } }
         if (Engine.screen == "boot" || Engine.me == null) Engine.boot()
-        openLink(intent)
-        voiceSearch(intent)
-        joinFrom(intent)
+        if (savedInstanceState == null) {                       // (turning the phone makes the page again: the link was already handled)
+            openLink(intent)
+            voiceSearch(intent)
+            joinFrom(intent)
+        }
     }
 
     /** "Hey Google, play ... on AD Player": the best match on the PC, played where it plays now. */
@@ -88,6 +90,7 @@ class MainActivity : ComponentActivity() {
     private fun joinFrom(intent: android.content.Intent?) {
         if (intent?.data?.scheme != "adplayer" || intent.data?.host != "join") return
         val r = intent.data?.getQueryParameter("room") ?: return
+        intent.data = null                                      // (not joined again when the app is opened again)
         if (r.isEmpty()) return
         if (Engine.screen == "main") { TogetherNote.cancel(r); Engine.tgJoin(r) } else Engine.joinWhenReady = r
     }
@@ -110,6 +113,11 @@ class MainActivity : ComponentActivity() {
         joinFrom(intent)
         openLink(intent)
         voiceSearch(intent)
+    }
+
+    override fun onDestroy() {
+        if (isFinishing || !isChangingConfigurations) Engine.announcer = null   // (it holds this page; a new one sets its own)
+        super.onDestroy()
     }
 
     override fun onStart() {

@@ -92,9 +92,12 @@ fun TvRail() {
             Triple("home", "Home", Ic.Home), Triple("search", "Search", Ic.Search), Triple("shows", "Shows", Ic.Tv),
             Triple("movies", "Movies", Ic.Movie), Triple("books", "Books", Ic.Headphones), Triple("you", "Settings", Ic.Settings)
         ).forEachIndexed { i, (k, l, ic) ->
-            val on = W.tab == k || (k == "search" && W.stack.lastOrNull()?.kind == "search")
+            val onSearch = W.stack.lastOrNull()?.kind == "search"
+            val on = if (k == "search") onSearch else W.tab == k && !onSearch
+            // the remote starts on the page's own menu item (also when the player closes and this comes back)
+            val start = on || (i == 0 && !onSearch && listOf("home", "shows", "movies", "books", "you").none { it == W.tab })
             Row(
-                Modifier.fillMaxWidth().heightIn(min = 52.dp).then(if (i == 0) Modifier.focusRequester(first) else Modifier)
+                Modifier.fillMaxWidth().heightIn(min = 52.dp).then(if (start) Modifier.focusRequester(first) else Modifier)
                     .clip(RoundedCornerShape(14.dp)).background(if (on) (if (Look.low) EMain else Color(0x242DD4BF)) else Color.Transparent)
                     .clickable {
                         when (k) {
@@ -102,7 +105,7 @@ fun TvRail() {
                             "movies" -> W.openTab(k, Page("libtab", "movies"))
                             "books" -> W.openTab(k, Page("books"))
                             "you" -> W.openTab(k, Page("settings"))
-                            "search" -> W.go(Page("search"))
+                            "search" -> if (W.stack.lastOrNull()?.kind != "search") W.go(Page("search"))
                             else -> W.openTab(k)
                         }
                     }

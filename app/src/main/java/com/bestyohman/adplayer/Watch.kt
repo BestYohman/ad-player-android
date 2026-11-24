@@ -491,8 +491,11 @@ private fun BottomNav() {
                 ) {
                     val c = if (Look.low) (if (on) EInk else EFg) else if (on) EGreen else ESub
                     Icon(ic, null, tint = c, modifier = Modifier.size(24.dp))
-                    Text(l, color = c, fontSize = (12f * minOf(1f, 1.45f / Look.textScale)).sp, fontWeight = if (on || Look.low) FontWeight.Bold else FontWeight.Medium, maxLines = 1,
-                        modifier = Modifier.padding(top = 2.dp))
+                    val fs = (12f * minOf(1f, 1.45f / Look.textScale)).sp
+                    // (a longer name like "Settings" gets a little smaller rather than cut off with big text)
+                    androidx.compose.foundation.text.BasicText(l, Modifier.padding(top = 2.dp, start = 2.dp, end = 2.dp), maxLines = 1,
+                        style = androidx.compose.ui.text.TextStyle(color = c, fontSize = fs, fontWeight = if (on || Look.low) FontWeight.Bold else FontWeight.Medium),
+                        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = fs, stepSize = 0.5.sp))
                 }
             }
         }
@@ -521,6 +524,11 @@ private fun MiniPlayer() {
         len > 0 -> " · ${clock(pos)} / ${clock(len)}"
         else -> ""
     }
+    val spoken = title + ", " + (if (st.paused) "paused" else "playing") + when {
+        st.tv -> " on " + (Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "the TV")
+        Engine.tg != null -> " together"
+        else -> ""
+    }           // (what TalkBack says when it changes: never the clock, which would be read every second)
     val open = { if (v != null || b != null || Engine.loc != null) W.player = true else W.go(Page("nowplaying")) }
     val local = Engine.mode != Engine.Mode.NONE && Engine.tg == null
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Column(
@@ -528,7 +536,7 @@ private fun MiniPlayer() {
             .background(if (Look.low) EBtn2 else Color(0xF012151C)).border(Look.line, if (Look.low) ELine else Color(0x1AFFFFFF), RoundedCornerShape(20.dp))
     ) {
         Row(
-            Modifier.fillMaxWidth().clickable(onClick = open).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }
+            Modifier.fillMaxWidth().clickable(onClick = open).clearAndSetSemantics { contentDescription = spoken; liveRegion = LiveRegionMode.Polite; onClick("Open the player") { open(); true } }
                 .padding(start = 10.dp, end = 14.dp, top = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -829,8 +837,8 @@ private fun InviteCards() {
                     modifier = Modifier.weight(1f).padding(horizontal = 10.dp))
             }
             Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                WhitePill("Join", Ic.Play, Modifier.weight(1f).height(44.dp)) { Engine.tgJoin(r.s("id")) }
-                WhitePill("Not now", null, Modifier.weight(1f).height(44.dp), dark = true) { Engine.inviteNo(r) }
+                WhitePill("Join", Ic.Play, Modifier.weight(1f).heightIn(min = 44.dp)) { Engine.tgJoin(r.s("id")) }
+                WhitePill("Not now", null, Modifier.weight(1f).heightIn(min = 44.dp), dark = true) { Engine.inviteNo(r) }
             }
         }
     }
