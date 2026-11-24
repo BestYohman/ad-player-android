@@ -19,6 +19,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.semantics.heading
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -75,48 +80,63 @@ object TvFocusIndication : IndicationNodeFactory {
     }
 }
 
-/** The TV's menu down the left side (instead of the tabs at the bottom). */
+/** How big everything is on this TV (Settings, How you see the screen): kept on this TV only. A TV shows the phone's
+ *  layout at its own size, which is far too big from the sofa, so it starts at "Medium". */
+object TvSize {
+    val opts = listOf("small" to "Small", "medium" to "Medium", "large" to "Large", "larger" to "Larger")
+    var v by mutableStateOf(Prefs.str("tvSize", "medium"))
+        private set
+    fun set(k: String) { v = k; Prefs.put("tvSize", k) }
+    val scale: Float get() = when (v) { "small" -> 0.58f; "large" -> 0.86f; "larger" -> 1f; else -> 0.7f }
+}
+
+/** The TV's menu along the top, as on the web page on a computer: the logo, the pages, then Search and Play on. */
 @Composable
-fun TvRail() {
+fun TvTopNav() {
     val first = remember { FocusRequester() }
+    var castOpen by remember { mutableStateOf(false) }
+    // the remote starts on the page's own menu item (also when the player closes and this comes back)
     LaunchedEffect(Unit) { try { first.requestFocus() } catch (e: Exception) { } }
-    Column(
-        Modifier.width(210.dp).fillMaxHeight().background(if (Look.low) EBg else Color(0xFF0E1116)).padding(vertical = 24.dp, horizontal = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+    val onSearch = W.stack.lastOrNull()?.kind == "search"
+    val tabs = listOf(
+        Triple("home", "Home", Ic.Home), Triple("shows", "Shows", Ic.Tv), Triple("movies", "Movies", Ic.Movie),
+        Triple("books", "Books", Ic.Headphones), Triple("search", "Search", Ic.Search), Triple("you", "Settings", Ic.Settings)
+    )
+    val cur = if (onSearch) "search" else tabs.firstOrNull { it.first == W.tab }?.first ?: "home"
+    Row(
+        Modifier.fillMaxWidth().background(if (Look.low) EBg else Color(0xFF0E1116))
+            .padding(horizontal = 28.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Row(Modifier.padding(start = 8.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-            LogoMark(36.dp)
-            Text("AD Player", color = EFg, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, modifier = Modifier.padding(start = 10.dp))
-        }
-        listOf(
-            Triple("home", "Home", Ic.Home), Triple("search", "Search", Ic.Search), Triple("shows", "Shows", Ic.Tv),
-            Triple("movies", "Movies", Ic.Movie), Triple("books", "Books", Ic.Headphones), Triple("you", "Settings", Ic.Settings)
-        ).forEachIndexed { i, (k, l, ic) ->
-            val onSearch = W.stack.lastOrNull()?.kind == "search"
-            val on = if (k == "search") onSearch else W.tab == k && !onSearch
-            // the remote starts on the page's own menu item (also when the player closes and this comes back)
-            val start = on || (i == 0 && !onSearch && listOf("home", "shows", "movies", "books", "you").none { it == W.tab })
+        LogoMark(34.dp)
+        Text("AD Player", color = EFg, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp,
+            modifier = Modifier.padding(start = 8.dp, end = 22.dp).semantics { heading() })
+        tabs.forEach { (k, l, ic) ->
+            val on = k == cur
             Row(
-                Modifier.fillMaxWidth().heightIn(min = 52.dp).then(if (start) Modifier.focusRequester(first) else Modifier)
-                    .clip(RoundedCornerShape(14.dp)).background(if (on) (if (Look.low) EMain else Color(0x242DD4BF)) else Color.Transparent)
+                Modifier.heightIn(min = 44.dp).then(if (on) Modifier.focusRequester(first) else Modifier)
+                    .clip(RoundedCornerShape(22.dp)).background(if (on) (if (Look.low) EMain else Color(0x242DD4BF)) else Color.Transparent)
                     .clickable {
                         when (k) {
                             "shows" -> W.openTab(k, Page("libtab", "tvshows"))
                             "movies" -> W.openTab(k, Page("libtab", "movies"))
                             "books" -> W.openTab(k, Page("books"))
                             "you" -> W.openTab(k, Page("settings"))
-                            "search" -> if (W.stack.lastOrNull()?.kind != "search") W.go(Page("search"))
+                            "search" -> if (!onSearch) W.go(Page("search"))
                             else -> W.openTab(k)
                         }
                     }
                     .semantics { contentDescription = l + if (on) ", selected" else ""; role = Role.Tab }
-                    .padding(horizontal = 14.dp),
+                    .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val c = if (on) (if (Look.low) EInk else EGreen) else EFg
-                Icon(ic, null, tint = c, modifier = Modifier.size(24.dp))
-                Text(l, color = c, fontSize = 17.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium, modifier = Modifier.padding(start = 14.dp))
+                Icon(ic, null, tint = c, modifier = Modifier.size(20.dp))
+                Text(l, color = c, fontSize = 16.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium, modifier = Modifier.padding(start = 8.dp))
             }
         }
+        Spacer(Modifier.weight(1f))
+        GlassButton(Ic.Cast, "Play on: " + (Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "choose"), wide = true) { castOpen = true }
     }
+    if (castOpen) PlayOnDialog { castOpen = false }
 }

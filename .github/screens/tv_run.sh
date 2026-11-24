@@ -44,6 +44,8 @@ key 22; key 22
 shot tv_03_home_focus 2
 key 20; key 20
 shot tv_04_rows 3
+open "kind=movies"
+shot tv_04b_movies 5
 open "kind=item&id=m_magic&extra=Movie&title=Moonlit%20Magic%202"
 shot tv_05_movie 5
 key 111
@@ -61,4 +63,12 @@ key 4
 shot tv_08_after 3
 open "kind=settings"
 shot tv_09_you 4
+tapon "Screen and size"
+shot tv_10_size 4
+tapon "Large"
+shot tv_11_size_large 4
+tapon "Small"
+shot tv_12_size_small 4
+open "kind=home"
+shot tv_13_home_small 5
 adb logcat -d -t 400 > shots/logcat.txt

@@ -155,6 +155,8 @@ object Look {
     val zoom: Float get() = if (!low) 1f else when (Engine.sOpt("size")) { "normal" -> 1.0f; "larger" -> 1.16f; "largest" -> 1.24f; else -> 1.08f }
     val posters: Boolean get() = !low || Engine.sOn("posters")
     val focusRing: Boolean get() = low && Engine.sOn("focus")
+    /** A TV: everything smaller, by this TV's own size choice (Settings, How you see the screen). */
+    val tv: Float get() = if (Engine.isTv) TvSize.scale else 1f
 }
 val EBg: Color get() = Look.pick(0xFF0B0D11, 0xFF000000, 0xFFFFFFFF, 0xFF000000)
 val EFg: Color get() = Look.pick(0xFFFFFFFF, 0xFFFFFFFF, 0xFF000000, 0xFFFFD60A)
@@ -275,16 +277,19 @@ fun WatchApp(act: MainActivity) {
         LaunchedEffect(Engine.message) {
             if (Engine.message.isNotEmpty()) { W.toast = Engine.message; val n = ++W.toastSeq; delay(3500); if (W.toastSeq == n) W.toast = "" }
         }
-        BackHandler(enabled = W.player || W.stack.size > 1 || W.tab != "home") { W.back() }
+        BackHandler(enabled = W.player || W.stack.size > 1 || W.tab != "home") {
+            if (Engine.isTv && W.player && video) Engine.stopPressed { W.player = false }     // a TV: Back ends the video (no small player to go to)
+            else W.back()
+        }
         val dn = androidx.compose.ui.platform.LocalDensity.current
         androidx.compose.runtime.CompositionLocalProvider(
-            androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(dn.density * Look.zoom, dn.fontScale * Look.textScale / Look.zoom)
+            androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(dn.density * Look.zoom * Look.tv, dn.fontScale * Look.textScale / Look.zoom)
         ) {
         InviteDialog(); PairDialog()
         if (showPlayer && video) {
             val z = minOf(Look.zoom, 1.08f); val t = minOf(Look.textScale, 1.4f)
             androidx.compose.runtime.CompositionLocalProvider(
-                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(dn.density * z, dn.fontScale * t / z)
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(dn.density * z * Look.tv, dn.fontScale * t / z)
             ) {
                 androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.LocalIndication provides
                     (if (Engine.isTv) TvFocusIndication else androidx.compose.foundation.LocalIndication.current)) {
@@ -302,9 +307,9 @@ fun WatchApp(act: MainActivity) {
         if (Engine.isTv) Surface(Modifier.fillMaxSize(), color = EBg) {
             // a TV: the menu down the side, the page beside it (the remote's arrows move between them)
             androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.LocalIndication provides TvFocusIndication) {
-                Row(Modifier.fillMaxSize()) {
-                    TvRail()
-                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                Column(Modifier.fillMaxSize()) {
+                    TvTopNav()
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
                         val page = W.stack.last()
                         key(page) { PageContent(page) {} }
                         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().widthIn(max = 900.dp)) {
@@ -366,7 +371,7 @@ private fun PageContent(p: Page, openDrawer: () -> Unit) {
 private fun TopBar(title: String?, openDrawer: () -> Unit, solid: Boolean = true, heading: Boolean = true) {
     var castOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().then(if (solid) Modifier.background(EBg) else Modifier).statusBarsPadding().padding(start = 10.dp, end = 10.dp, top = 8.dp)) {
+        if (!Engine.isTv) Box(Modifier.fillMaxWidth().then(if (solid) Modifier.background(EBg) else Modifier).statusBarsPadding().padding(start = 10.dp, end = 10.dp, top = 8.dp)) {
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 60.dp).clip(RoundedCornerShape(20.dp))
                     .background(if (Look.low) EBg else if (solid) Color(0xF212151C) else Color(0x5C12151C))
@@ -1981,6 +1986,10 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
             when (section) {
                 "sight" -> {
                     item { Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { SightChoices(Engine.sight) { v -> if (v != Engine.sight) Engine.sightSave(mapOf("sight" to v), sightSaid(v)) } } }
+                    if (Engine.isTv) {
+                        item { SightGroup("Size on this TV") }
+                        item { SightPicks(TvSize.opts, TvSize.v) { k, l -> TvSize.set(k); Engine.say("Size on this TV: ${l.lowercase()}.") } }
+                    }
                     if (Look.low) {
                         item { SightGroup("Text size") }
                         item {
@@ -2053,8 +2062,9 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
                         }
                     }
                     item { card("Account", "Signed in as $name", Ic.Person) { W.go(Page("settings", "account")) } }
-                    item { card("How you see the screen", sightName(Engine.sight) + if (Look.low) " · " + Engine.sOpt("size").replaceFirstChar { it.uppercase() } + " text · " +
-                        (SCREENS.firstOrNull { it.first == Engine.sOpt("screen") }?.second ?: "Dark") else "", Ic.Eye) { W.go(Page("settings", "sight")) } }
+                    item { card(if (Engine.isTv) "Screen and size" else "How you see the screen", sightName(Engine.sight) + (if (Look.low) " · " + Engine.sOpt("size").replaceFirstChar { it.uppercase() } + " text · " +
+                        (SCREENS.firstOrNull { it.first == Engine.sOpt("screen") }?.second ?: "Dark") else "") +
+                        (if (Engine.isTv) " · ${(TvSize.opts.firstOrNull { it.first == TvSize.v }?.second ?: "Medium")} on this TV" else ""), Ic.Eye) { W.go(Page("settings", "sight")) } }
                     item { card("Playback", "Video quality ${Engine.qualityLabel()}", Ic.Play) { W.go(Page("settings", "playback")) } }
                     item { card("Play on", dev, Ic.Cast) { castOpen = true } }
                     if (Engine.devHelp.isNotEmpty()) item { Text(Engine.devHelp, color = ESub, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)) }
