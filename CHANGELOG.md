@@ -2,6 +2,9 @@
 
 Each version below is a release on GitHub (Releases, "v1.8.0" and so on). The newest is also "AD Player (latest)".
 
+## 1.14.4 - 2026-11-24
+- **Server settings:** whoever runs the AD Player Server (its admins, and the people picked in its Settings) has a Server settings card in Settings. It opens the server's own page inside the app - AD files, the queue, people and the settings - already signed in.
+
 ## 1.14.3 - 2026-11-24
 - **The bar at the top** stays a floating glass bar as you scroll, as on the web page, with no black strip behind it - on Home and on a show's or movie's page, where it now floats over the big picture.
 
