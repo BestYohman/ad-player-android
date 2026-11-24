@@ -408,13 +408,21 @@ private fun PageContent(p: Page, openDrawer: () -> Unit) {
 /** The bar at the top, as on the web page: a floating glass bar with the logo, "AD Player", Search and Play on (Back
  *  in front when a page was opened from another). A page's name is its big heading under the bar. */
 @Composable
-private fun TopBar(title: String?, openDrawer: () -> Unit, solid: Boolean = true, heading: Boolean = true) {
+private fun TopBar(title: String?, openDrawer: () -> Unit, solid: Boolean = true, heading: Boolean = true, floating: Boolean = false) {
     var castOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth()) {
-        if (!Engine.isTv) Box(Modifier.fillMaxWidth().then(if (solid) Modifier.background(EBg) else Modifier).statusBarsPadding().padding(start = 10.dp, end = 10.dp, top = 8.dp)) {
+        // floating (Home, a show's page): the bar stays a glass bar over the page as it scrolls, as on the web page - no
+        // black strip behind it; only a soft shade under the phone's status bar so its clock stays readable
+        val strip = when {
+            Look.low -> if (solid) Modifier.background(EBg) else Modifier
+            floating -> if (solid) Modifier.background(Brush.verticalGradient(0f to Color(0xB30B0D11), 1f to Color.Transparent)) else Modifier
+            solid -> Modifier.background(EBg)
+            else -> Modifier
+        }
+        if (!Engine.isTv) Box(Modifier.fillMaxWidth().then(strip).statusBarsPadding().padding(start = 10.dp, end = 10.dp, top = 8.dp)) {
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 60.dp).clip(RoundedCornerShape(20.dp))
-                    .background(if (Look.low) EBg else if (solid) Color(0xF212151C) else Color(0x5C12151C))
+                    .background(if (Look.low) EBg else if (floating && solid) Color(0xD912151C) else if (solid) Color(0xF212151C) else Color(0x5C12151C))
                     .border(Look.line, if (Look.low) ELine else Color(0x17FFFFFF), RoundedCornerShape(20.dp)).padding(start = 12.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1056,7 +1064,7 @@ private fun WebHome(p: Page) {
         }
         val ls = W.list(p)
         val scrolled by remember { derivedStateOf { ls.firstVisibleItemIndex > 0 || ls.firstVisibleItemScrollOffset > 120 } }
-        if (!low) TopBar(null, {}, solid = scrolled, heading = false)
+        if (!low) TopBar(null, {}, solid = scrolled, heading = false, floating = true)
     }
     }
 }
@@ -1681,7 +1689,7 @@ private fun SeasonPage(p: Page, openDrawer: () -> Unit) {
                 else -> items(list) { EpisodeCard(it) }
             }
         }
-        TopBar(if (scrolled) info?.seriesName?.ifEmpty { p.title } ?: p.title else "", openDrawer, solid = scrolled, heading = false)
+        TopBar(if (scrolled) info?.seriesName?.ifEmpty { p.title } ?: p.title else "", openDrawer, solid = scrolled, heading = false, floating = true)
     }
 }
 
