@@ -55,6 +55,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -329,10 +330,13 @@ fun ChoiceDialog(title: String, options: List<Pair<String, String>>, selected: S
         onDismissRequest = onClose,
         title = { Text(title) },
         text = {
+            val cur = remember { androidx.compose.ui.focus.FocusRequester() }
+            // a TV: the remote starts on the current choice
+            LaunchedEffect(Unit) { if (Engine.isTv) { kotlinx.coroutines.delay(150); runCatching { cur.requestFocus() } } }
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 options.forEach { (id, label) ->
                     Row(
-                        Modifier.fillMaxWidth()
+                        Modifier.fillMaxWidth().then(if (id == selected) Modifier.focusRequester(cur) else Modifier)
                             .selectable(selected = id == selected, onClick = { onPick(id); onClose() }, role = Role.RadioButton)
                             .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically

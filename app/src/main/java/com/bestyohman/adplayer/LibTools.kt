@@ -100,9 +100,9 @@ private val FieldBg: Color get() = EBtn2
 
 /** The chips under a library's name, as on the web page: With AD, Favorites, In progress, Unwatched. */
 @Composable
-fun FilterChips(view: LibView, onChange: (LibView) -> Unit) {
+fun FilterChips(view: LibView, edge: Boolean = true, onChange: (LibView) -> Unit) {
     androidx.compose.foundation.lazy.LazyRow(
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = if (edge) 16.dp else 0.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 10.dp)
     ) {
         item { FChip("With AD", view.ad) { onChange(view.copy(ad = !view.ad)) } }

@@ -110,6 +110,8 @@ fun PlayerScreen(act: MainActivity) {
         }
     }
     val touch = { poke = System.currentTimeMillis() }
+    // a TV: Back first hides the buttons; Back again stops the video
+    androidx.activity.compose.BackHandler(enabled = Engine.isTv && shown && !locked && sheet.isEmpty() && dialog.isEmpty()) { shown = false }
     val keys = remember { androidx.compose.ui.focus.FocusRequester() }
     LaunchedEffect(shown, locked) { if (!shown || locked) try { keys.requestFocus() } catch (e: Exception) { } }
     LaunchedEffect(shown) { if (Engine.isTv) { delay(150); act.hideKeyboard() } }       // (a TV's keyboard never belongs over the video)

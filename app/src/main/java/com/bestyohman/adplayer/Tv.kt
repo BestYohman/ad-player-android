@@ -19,6 +19,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import kotlinx.coroutines.delay
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.semantics.heading
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.runtime.mutableStateOf
@@ -90,13 +105,68 @@ object TvSize {
     val scale: Float get() = when (v) { "small" -> 0.58f; "large" -> 0.86f; "larger" -> 1f; else -> 0.7f }
 }
 
-/** The TV's menu along the top, as on the web page on a computer: the logo, the pages, then Search and Play on. */
+/** The TV's remote: whether it's on the menu or the page, and where it was on each page (to go back there). */
+object TvNav {
+    var navIn by mutableStateOf(false)               // the remote is on the menu at the top (then it shows)
+    val navFr = FocusRequester()                     // the menu's item for the page that's open
+    val pageFr = FocusRequester()                    // the page (it passes the remote on to its first button or card)
+    var pageHas = false                              // the remote is somewhere on the page
+    var started = false
+    var fromMenu = false                             // the page was opened from the menu (the remote stays there)
+    var restoreUntil = 0L                            // a page just opened: its remembered card may take the remote until then
+    val last = HashMap<Page, String>()               // page -> the card or button the remote was last on
+}
+
+/** The page being shown (for remembering where the remote was on it). */
+val LocalPage = compositionLocalOf<Page?> { null }
+
+/** A TV: this card or button is remembered as where the remote was on this page, and gets it back when the page
+ *  comes back (Back, or the player closing). */
+@Composable
+fun Modifier.tvFocusKey(key: String): Modifier {
+    if (!Engine.isTv) return this
+    val page = LocalPage.current ?: return this
+    val fr = remember { FocusRequester() }
+    LaunchedEffect(key) {
+        delay(60)
+        if (TvNav.last[page] == key && !TvNav.pageHas && System.currentTimeMillis() < TvNav.restoreUntil) runCatching { fr.requestFocus() }
+    }
+    return this.focusRequester(fr).onFocusChanged { if (it.hasFocus) TvNav.last[page] = key }
+}
+
+/** A TV: words the remote can stop on (so it can scroll to them - the remote only goes to things it can stop on). */
+@Composable
+fun Modifier.tvReadable(): Modifier {
+    if (!Engine.isTv) return this
+    val s = remember { MutableInteractionSource() }
+    return this.indication(s, LocalIndication.current).focusable(interactionSource = s)
+}
+
+/** A TV: Down with nothing further down to stop on still scrolls to the very end of the page. */
+@Composable
+fun Modifier.tvScrollEnds(ls: androidx.compose.foundation.lazy.LazyListState): Modifier {
+    if (!Engine.isTv) return this
+    val fm = androidx.compose.ui.platform.LocalFocusManager.current
+    val sc = androidx.compose.runtime.rememberCoroutineScope()
+    return this.onPreviewKeyEvent { e ->
+        if (e.type != KeyEventType.KeyDown || e.key != Key.DirectionDown) return@onPreviewKeyEvent false
+        if (!fm.moveFocus(FocusDirection.Down)) sc.launch { val n = ls.layoutInfo.totalItemsCount; if (n > 0) ls.animateScrollToItem(n - 1) }
+        true
+    }
+}
+
+/** A TV: a row that remembers which card the remote was on (down into it goes back there). */
+@OptIn(ExperimentalComposeUiApi::class)
+fun Modifier.tvRow(): Modifier = if (Engine.isTv) this.focusRestorer() else this
+
+/** The TV's menu along the top, as on the web page on a computer: the logo, the pages, then Play on. It's only shown
+ *  while the remote is on it (Up from the top of a page, or Back, brings it). */
 @Composable
 fun TvTopNav() {
-    val first = remember { FocusRequester() }
+    val first = TvNav.navFr
     var castOpen by remember { mutableStateOf(false) }
-    // the remote starts on the page's own menu item (also when the player closes and this comes back)
-    LaunchedEffect(Unit) { try { first.requestFocus() } catch (e: Exception) { } }
+    // the remote starts on the menu when the app opens
+    LaunchedEffect(Unit) { if (!TvNav.started) { TvNav.started = true; delay(150); try { first.requestFocus() } catch (e: Exception) { } } }
     val onSearch = W.stack.lastOrNull()?.kind == "search"
     val tabs = listOf(
         Triple("home", "Home", Ic.Home), Triple("shows", "Shows", Ic.Tv), Triple("movies", "Movies", Ic.Movie),
@@ -117,6 +187,7 @@ fun TvTopNav() {
                 Modifier.heightIn(min = 44.dp).then(if (on) Modifier.focusRequester(first) else Modifier)
                     .clip(RoundedCornerShape(22.dp)).background(if (on) (if (Look.low) EMain else Color(0x242DD4BF)) else Color.Transparent)
                     .clickable {
+                        TvNav.fromMenu = true
                         when (k) {
                             "shows" -> W.openTab(k, Page("libtab", "tvshows"))
                             "movies" -> W.openTab(k, Page("libtab", "movies"))

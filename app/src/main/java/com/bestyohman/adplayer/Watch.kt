@@ -1,6 +1,10 @@
 package com.bestyohman.adplayer
 
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.draw.clipToBounds
+import kotlin.math.roundToInt
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -99,6 +103,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -199,6 +204,14 @@ object W {
         stack.add(p)
     }
     fun list(p: Page): LazyListState = lists.getOrPut(p) { LazyListState() }
+    /** The open page back at its top (a TV: the remote went up to the menu). */
+    fun scrollTop() {
+        val p = stack.lastOrNull() ?: return
+        Engine.scope.launch {
+            runCatching { lists[p]?.animateScrollToItem(0) }; runCatching { grids[p]?.animateScrollToItem(0) }
+            if (p.kind == "books") grids.filterKeys { it.kind == "books" }.values.forEach { g -> runCatching { g.animateScrollToItem(0) } }
+        }
+    }
     fun grid(p: Page): LazyGridState = grids.getOrPut(p) { LazyGridState() }
     fun isPlayed(it: Item) = played[it.id] ?: it.played
 
@@ -277,9 +290,13 @@ fun WatchApp(act: MainActivity) {
         LaunchedEffect(Engine.message) {
             if (Engine.message.isNotEmpty()) { W.toast = Engine.message; val n = ++W.toastSeq; delay(3500); if (W.toastSeq == n) W.toast = "" }
         }
-        BackHandler(enabled = W.player || W.stack.size > 1 || W.tab != "home") {
-            if (Engine.isTv && W.player && video) Engine.stopPressed { W.player = false }     // a TV: Back ends the video (no small player to go to)
-            else W.back()
+        BackHandler(enabled = W.player || W.stack.size > 1 || W.tab != "home" || (Engine.isTv && !TvNav.navIn)) {
+            when {
+                Engine.isTv && W.player && video -> Engine.stopPressed { W.player = false }    // a TV: Back ends the video (no small player to go to)
+                // a TV, on a menu page: Back goes up to the menu first (as on other TV apps); Back again leaves
+                Engine.isTv && !W.player && W.stack.size == 1 && !TvNav.navIn -> runCatching { TvNav.navFr.requestFocus() }
+                else -> W.back()
+            }
         }
         val dn = androidx.compose.ui.platform.LocalDensity.current
         androidx.compose.runtime.CompositionLocalProvider(
@@ -308,10 +325,32 @@ fun WatchApp(act: MainActivity) {
             // a TV: the menu down the side, the page beside it (the remote's arrows move between them)
             androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.LocalIndication provides TvFocusIndication) {
                 Column(Modifier.fillMaxSize()) {
-                    TvTopNav()
-                    Box(Modifier.weight(1f).fillMaxWidth()) {
-                        val page = W.stack.last()
-                        key(page) { PageContent(page) {} }
+                    // the menu slides away while the remote is on the page (it can't be used from there anyway); it's
+                    // still just above the page, so Up from the top of the page (or Back) reaches it and it comes back
+                    val shown by androidx.compose.animation.core.animateFloatAsState(if (TvNav.navIn) 1f else 0f, label = "menu")
+                    Box(Modifier.onFocusChanged { TvNav.navIn = it.hasFocus }.clipToBounds().layout { m, c ->
+                        val pl = m.measure(c.copy(minHeight = 0, maxHeight = androidx.compose.ui.unit.Constraints.Infinity))
+                        val h = (pl.height * shown).roundToInt()
+                        layout(pl.width, h) { pl.place(0, h - pl.height) }
+                    }) { TvTopNav() }
+                    // on the menu for a moment: the page goes back to its top (what's at the top of it shows)
+                    LaunchedEffect(TvNav.navIn) { if (TvNav.navIn) { delay(350); if (TvNav.navIn) W.scrollTop() } }
+                    val page = W.stack.last()
+                    // a page that opens (not from the menu): the remote goes into it - to the card it was on before, or else
+                    // its first button or card (tried for a moment, as the page's things arrive from the PC)
+                    LaunchedEffect(page) {
+                        val fromMenu = TvNav.fromMenu; TvNav.fromMenu = false
+                        if (fromMenu) return@LaunchedEffect
+                        TvNav.restoreUntil = System.currentTimeMillis() + 1500
+                        val wait = if (TvNav.last[page] != null) 6 else 0
+                        repeat(20) { i ->
+                            delay(100)
+                            if (TvNav.pageHas) return@LaunchedEffect
+                            if (i >= wait) runCatching { TvNav.pageFr.requestFocus() }
+                        }
+                    }
+                    Box(Modifier.weight(1f).fillMaxWidth().focusRequester(TvNav.pageFr).onFocusChanged { TvNav.pageHas = it.hasFocus }.focusGroup()) {
+                        androidx.compose.runtime.CompositionLocalProvider(LocalPage provides page) { key(page) { PageContent(page) {} } }
                         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().widthIn(max = 900.dp)) {
                             if (W.toast.isNotEmpty()) Toast(W.toast)
                             MiniPlayer()
@@ -737,7 +776,7 @@ private fun Badge(modifier: Modifier, content: @Composable () -> Unit) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PosterCard(item: Item, width: Dp, wide: Boolean = false, square: Boolean = false, sub: String? = null,
-               onLong: (() -> Unit)? = null, onTap: () -> Unit = { W.open(item) }) {
+               onLong: (() -> Unit)? = null, fkey: String = item.id, onTap: () -> Unit = { W.open(item) }) {
     val ep = item.type == "Episode"
     val title = if (ep) item.seriesName.ifEmpty { item.name } else item.name.ifEmpty { item.label }
     val subtitle = sub ?: when {
@@ -747,7 +786,7 @@ fun PosterCard(item: Item, width: Dp, wide: Boolean = false, square: Boolean = f
         else -> item.year
     }
     Column(
-        Modifier.width(width).combinedClickable(onClick = onTap, onLongClick = onLong)
+        Modifier.width(width).tvFocusKey(fkey).combinedClickable(onClick = onTap, onLongClick = onLong)
             .clearAndSetSemantics { contentDescription = item.spoken(); role = Role.Button; onClick { onTap(); true } },
         horizontalAlignment = Alignment.Start
     ) {
@@ -768,11 +807,26 @@ fun LazyListScope.posterRow(title: String, list: List<Item>, width: Dp, wide: Bo
     if (list.isEmpty()) return
     item { RowTitle(title, onMore) }
     item {
-        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyRow(Modifier.tvRow(), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(list) { it ->
                 PosterCard(it, width, wide, square,
                     onLong = if (it.type == "Episode" && it.seriesId.isNotEmpty()) ({ W.go(Page("item", it.seriesId, it.seriesName, "Series")) }) else null,
-                    onTap = { if (click != null) click(it) else W.open(it) })
+                    fkey = title + "|" + it.id, onTap = { if (click != null) click(it) else W.open(it) })
+            }
+            if (onMore != null && Engine.isTv) item { SeeAllCard(title, width, wide, square, onMore) }
+        }
+    }
+}
+
+/** A TV: "See all" as the last card of a row. */
+@Composable
+fun SeeAllCard(title: String, width: Dp, wide: Boolean = false, square: Boolean = false, onClick: () -> Unit) {
+    Column(Modifier.width(width).clickable(onClick = onClick).semantics(mergeDescendants = true) { contentDescription = "See all: $title"; role = Role.Button }) {
+        Box(Modifier.fillMaxWidth().aspectRatio(if (wide) 16f / 9f else if (square) 1f else 2f / 3f).clip(RoundedCornerShape(12.dp)).background(EBtn2)
+            .border(Look.line, ELine, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Ic.Chevron, null, tint = EFg, modifier = Modifier.size(34.dp))
+                Text("See all", color = EFg, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
             }
         }
     }
@@ -915,7 +969,7 @@ private fun WebRowTitle(text: String, onAll: (() -> Unit)?) {
         Text(text, color = EFg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 27.sp,
             modifier = Modifier.weight(1f).semantics { heading() })
         if (onAll != null) Text("See all", color = ESub, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.heightIn(min = if (Look.low) 56.dp else 0.dp).clip(RoundedCornerShape(10.dp))
+            modifier = Modifier.focusProperties { canFocus = !Engine.isTv }.heightIn(min = if (Look.low) 56.dp else 0.dp).clip(RoundedCornerShape(10.dp))
                 .then(if (Look.low) Modifier.border(Look.line, ELine, RoundedCornerShape(10.dp)) else Modifier).clickable(onClick = onAll)
                 .wrapContentHeight(Alignment.CenterVertically).padding(horizontal = if (Look.low) 12.dp else 8.dp, vertical = 8.dp)
                 .semantics { contentDescription = "See all: $text"; role = Role.Button })
@@ -954,8 +1008,12 @@ private fun WebHome(p: Page) {
     if (low) TopBar(null, {}, heading = false)
     Box(Modifier.fillMaxSize()) {
         Refreshable(Modifier.fillMaxSize(), belowTopBar = !low) {
-            LazyColumn(Modifier.fillMaxSize(), state = W.list(p), contentPadding = PaddingValues(bottom = 190.dp)) {
-                if (hero.isNotEmpty()) item { HeroPager(hero) } else if (!low) item { Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars).height(84.dp)) }
+            LazyColumn(Modifier.fillMaxSize().tvScrollEnds(W.list(p)), state = W.list(p), contentPadding = PaddingValues(bottom = 190.dp)) {
+                if (hero.isNotEmpty()) item {
+                    val sc = rememberCoroutineScope(); val lst = W.list(p)
+                    // a TV: on the big picture, the page goes right to its top (so all of it shows)
+                    Box(Modifier.onFocusChanged { if (it.hasFocus && Engine.isTv) sc.launch { lst.animateScrollToItem(0) } }) { HeroPager(hero) }
+                } else if (!low) item { Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars).height(84.dp)) }
                 item { OfflineNote() }
                 item { InviteCards() }
                 item { UpdateCard() }
@@ -970,13 +1028,23 @@ private fun WebHome(p: Page) {
                         }
                     }
                     item(key = "r_" + r.kind) {
-                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        val all = { if (r.kind.startsWith("books_")) W.openTab("books", Page("books")) else W.go(Page("list", r.kind, r.title, r.query)) }
+                        LazyRow(Modifier.tvRow(), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             items(list) { it ->
+                                val fk = r.kind + "|" + it.id
                                 when (r.shape) {
-                                    "land" -> PosterCard(it, if (low) 300.dp else 250.dp, wide = true,
+                                    "land" -> PosterCard(it, if (low) 300.dp else 250.dp, wide = true, fkey = fk,
                                         onLong = if (it.type == "Episode" && it.seriesId.isNotEmpty()) ({ W.go(Page("item", it.seriesId, it.seriesName, "Series")) }) else null)
-                                    "sq" -> PosterCard(it, if (low) 220.dp else 150.dp, square = true)
-                                    else -> PosterCard(it, if (low) 190.dp else 124.dp)
+                                    "sq" -> PosterCard(it, if (low) 220.dp else 150.dp, square = true, fkey = fk)
+                                    else -> PosterCard(it, if (low) 190.dp else 124.dp, fkey = fk)
+                                }
+                            }
+                            // a TV: "See all" is a card at the end of the row (the remote gets there by going right)
+                            if (Engine.isTv) item {
+                                when (r.shape) {
+                                    "land" -> SeeAllCard(r.title, if (low) 300.dp else 250.dp, wide = true, onClick = all)
+                                    "sq" -> SeeAllCard(r.title, if (low) 220.dp else 150.dp, square = true, onClick = all)
+                                    else -> SeeAllCard(r.title, if (low) 190.dp else 124.dp, onClick = all)
                                 }
                             }
                         }
@@ -1008,7 +1076,8 @@ private fun HeroPager(list: List<Pair<Item, String>>) {
                 val on = pager.currentPage == j
                 val t = if (it.type == "Episode") it.seriesName.ifEmpty { it.label } else it.name
                 Box(
-                    Modifier.size(width = if (Look.low) 48.dp else 34.dp, height = if (Look.low) 48.dp else 28.dp).clickable { scope.launch { if (still) pager.scrollToPage(j) else pager.animateScrollToPage(j) } }
+                    Modifier.size(width = if (Look.low) 48.dp else 34.dp, height = if (Look.low) 48.dp else 28.dp)
+                        .focusProperties { canFocus = !Engine.isTv }.clickable { scope.launch { if (still) pager.scrollToPage(j) else pager.animateScrollToPage(j) } }
                         .semantics { contentDescription = "Featured ${j + 1} of ${list.size}: $t" + if (on) ", showing" else ""; role = Role.Button },
                     contentAlignment = Alignment.CenterStart
                 ) { Box(Modifier.size(width = if (on) 28.dp else 16.dp, height = 4.dp).clip(RoundedCornerShape(2.dp)).background(if (on) (if (Look.low) EFg else Color.White) else if (Look.low) ESub.copy(alpha = 0.5f) else Color(0x66FFFFFF))) }
@@ -1046,7 +1115,7 @@ private fun HeroSlide(it: Item, k: String) {
         }
         return
     }
-    Box(Modifier.fillMaxWidth().height(560.dp).background(Color.Black)) {
+    Box(Modifier.fillMaxWidth().height(if (Engine.isTv) 420.dp else 560.dp).background(Color.Black)) {     // (a TV: the first row shows under it)
         if (art.isNotEmpty() && Look.posters) AsyncImage(picUrl(art, if ("/Backdrop" in art) 1920 else 1280), null, Img.loader, Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color(0x1A0B0D11), 0.58f to Color(0xB80B0D11), 1f to EBg)))
@@ -1165,15 +1234,26 @@ private fun GridPage(p: Page, openDrawer: () -> Unit) {
     }
     val (d, err) = rememberData(path)
     val list = d?.itemList()
+    val tv = Engine.isTv
+    // the name and how many (as on the web page); a library: the round Sort and filter button, and the chips (kept for next
+    // time). A TV: Sort and filter at the end of the chips (the remote goes along them to it), and it all scrolls with the posters.
+    val head: @Composable () -> Unit = {
+        Column(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().padding(start = if (tv) 0.dp else 16.dp, end = if (tv) 0.dp else 16.dp, top = 14.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(p.title + (if (list != null) " (${list.size})" else ""), color = EFg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold,
+                    lineHeight = 33.sp, modifier = Modifier.weight(1f).semantics { heading() })
+                if (p.kind == "library" && !tv) SortFilterButton(p.id, view) { v -> view = v; LibView.save(p.id, v) }
+            }
+            if (p.kind == "library") Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f, fill = false)) { FilterChips(view, edge = !tv) { v -> view = v; LibView.save(p.id, v) } }
+                if (tv) Box(Modifier.padding(start = 8.dp, bottom = 10.dp)) { SortFilterButton(p.id, view) { v -> view = v; LibView.save(p.id, v) } }
+            }
+        }
+    }
+    val grid = list != null && list.isNotEmpty() && p.id != "requests"
     Column(Modifier.fillMaxSize()) {
         TopBar(null, openDrawer, heading = false)
-        // the name and how many (as on the web page); a library: the round Sort and filter button, and the chips (kept for next time)
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(p.title + (if (list != null) " (${list.size})" else ""), color = EFg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold,
-                lineHeight = 33.sp, modifier = Modifier.weight(1f).semantics { heading() })
-            if (p.kind == "library") SortFilterButton(p.id, view) { v -> view = v; LibView.save(p.id, v) }
-        }
-        if (p.kind == "library") FilterChips(view) { v -> view = v; LibView.save(p.id, v) }
+        if (!tv || !grid) Box(Modifier.padding(horizontal = if (tv) 16.dp else 0.dp)) { head() }
         Refreshable(Modifier.fillMaxSize(), belowTopBar = false) { when {
             list == null -> Loading(err)
             list.isEmpty() && p.kind == "library" && view.filtersOn > 0 ->
@@ -1195,6 +1275,7 @@ private fun GridPage(p: Page, openDrawer: () -> Unit) {
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 190.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
+                    if (tv) item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) { head() }
                     items(list) { PosterCard(it, Dp.Unspecified, wide) }
                 }
             }
@@ -1207,7 +1288,12 @@ private fun LibTab(type: String, openDrawer: () -> Unit) {
     val (home, err) = rememberData("/api/play/home")
     val lib = home?.optJSONArray("libraries").objs().firstOrNull { it.s("type") == type }
     val name = if (type == "tvshows") "Shows" else "Movies"
-    LaunchedEffect(lib?.s("id")) { if (lib != null) W.stack[W.stack.lastIndex] = Page("library", lib.s("id"), name) }
+    LaunchedEffect(lib?.s("id")) {
+        if (lib != null) {
+            if (TvNav.navIn) TvNav.fromMenu = true                 // (a TV: opened from the menu, the remote stays there)
+            W.stack[W.stack.lastIndex] = Page("library", lib.s("id"), name)
+        }
+    }
     Column {
         TopBar(name, openDrawer)
         if (home != null && lib == null) Text("There's no ${name.lowercase()} library.", color = ESub, modifier = Modifier.padding(16.dp)) else Loading(err)
@@ -1331,7 +1417,7 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
     val (eps, eerr) = rememberData(season?.let { "/api/play/list?kind=episodes&parent=${enc(it.id)}" })
     Column(Modifier.fillMaxSize()) {
         TopBar(null, openDrawer, heading = false)
-        LazyColumn(Modifier.fillMaxSize(), state = ls, contentPadding = PaddingValues(bottom = 190.dp)) {
+        LazyColumn(Modifier.fillMaxSize().tvScrollEnds(ls), state = ls, contentPadding = PaddingValues(bottom = 190.dp)) {
             val ep = p.extra == "Episode" || info?.type == "Episode"
             val head = if (info == null) p.title else if (ep && info.seriesName.isNotEmpty()) "${info.seriesName}, ${info.epTitle()}" else info.name
             // Full vision puts the names on the picture below, so the title line at the top is only for low vision (and while loading).
@@ -1395,7 +1481,10 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                 }
             }
             item {
-                FlowRow(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp),
+                val sc = rememberCoroutineScope()
+                // a TV: on the buttons, the page goes right to its top (the picture and the name show)
+                FlowRow(Modifier.fillMaxWidth().onFocusChanged { if (it.hasFocus && Engine.isTv) sc.launch { ls.animateScrollToItem(0) } }
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp), maxItemsInEachRow = if (Look.low) 1 else Int.MAX_VALUE) {
                     val bm = if (Look.low) Modifier.fillMaxWidth() else Modifier
                     if (playable) {
@@ -1426,16 +1515,17 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                     WebBtn("Play on…", modifier = bm) { castOpen = true }
                 }
             }
-            if (j.s("tagline").isNotEmpty()) item {
-                Text(j.s("tagline"), color = ESub, fontSize = 16.sp, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp))
-            }
-            if (info.overview.isNotEmpty()) item {
-                Text(info.overview, color = EFg, fontSize = 17.sp, lineHeight = 25.sp, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp))
+            // (a TV: the tagline and what it's about are one stop for the remote, so it can scroll down to them)
+            if (j.s("tagline").isNotEmpty() || info.overview.isNotEmpty()) item {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp).tvReadable().padding(horizontal = 6.dp)) {
+                    if (j.s("tagline").isNotEmpty()) Text(j.s("tagline"), color = ESub, fontSize = 16.sp, modifier = Modifier.padding(top = 16.dp))
+                    if (info.overview.isNotEmpty()) Text(info.overview, color = EFg, fontSize = 17.sp, lineHeight = 25.sp, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
+                }
             }
             // a show: its seasons as buttons, that season's episodes under them
             if (!seasons.isNullOrEmpty()) {
                 item {
-                    LazyRow(Modifier.padding(top = 18.dp), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyRow(Modifier.padding(top = 18.dp).tvRow(), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         itemsIndexed(seasons) { i, se ->
                             Chip(se.name, i == seasonI) { seasonI = i; Prefs.put("season_${p.id}", se.id) }
                         }
@@ -1453,7 +1543,7 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                 "Length" to (if (info.type == "Series") "" else info.length), "Rated" to info.rating, "Studio" to j.s("studio"),
                 "Picture" to j.s("video_info"), "Sound" to j.s("audio_info")).filter { it.second.isNotEmpty() }
             if (facts.isNotEmpty()) item {
-                Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 22.dp)) {
+                Column(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 22.dp).tvReadable().padding(horizontal = 6.dp, vertical = 4.dp)) {
                     Text("Details", color = EFg, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.semantics { heading() })
                     facts.forEach { (k, v) ->
                         Column(Modifier.padding(top = 10.dp).semantics(mergeDescendants = true) {}) {
@@ -1468,9 +1558,9 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                 item { Text("Cast", color = EFg, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold,
                     modifier = Modifier.padding(start = 16.dp, top = 24.dp, bottom = 12.dp).semantics { heading() }) }
                 item {
-                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    LazyRow(Modifier.tvRow(), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         items(people) { pp ->
-                            Column(Modifier.width(96.dp).semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally) {
+                            Column(Modifier.width(96.dp).tvReadable().semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally) {
                                 Box(Modifier.size(84.dp).clip(CircleShape).background(EBtn2), contentAlignment = Alignment.Center) {
                                     if (pp.s("image").isNotEmpty() && Look.posters) AsyncImage(picUrl(pp.s("image"), 240), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                                     else Icon(Ic.Person, null, tint = ESub, modifier = Modifier.size(40.dp))
@@ -1508,7 +1598,7 @@ fun Chip(text: String, on: Boolean, radio: Boolean = false, onClick: () -> Unit)
 private fun EpRow(it: Item) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { W.go(Page("item", it.id, it.name, "Episode")) }
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).tvFocusKey("ep|" + it.id).clickable { W.go(Page("item", it.id, it.name, "Episode")) }
                 .semantics(mergeDescendants = true) { role = Role.Button },
             verticalAlignment = Alignment.Top
         ) {
@@ -1786,7 +1876,7 @@ private fun BookPage(p: Page, openDrawer: () -> Unit) {
     val title = bd?.s("title")?.ifEmpty { null } ?: item.label
     Column(Modifier.fillMaxSize()) {
         TopBar(null, openDrawer, heading = false)
-        LazyColumn(Modifier.fillMaxSize(), state = ls, contentPadding = PaddingValues(bottom = 190.dp)) {
+        LazyColumn(Modifier.fillMaxSize().tvScrollEnds(ls), state = ls, contentPadding = PaddingValues(bottom = 190.dp)) {
             item {
                 Text(title, color = EFg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 14.dp).semantics { heading() })
@@ -1815,8 +1905,10 @@ private fun BookPage(p: Page, openDrawer: () -> Unit) {
                 }
             }
             item {
+                val sc = rememberCoroutineScope()
                 @OptIn(ExperimentalLayoutApi::class)
-                FlowRow(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp),
+                FlowRow(Modifier.fillMaxWidth().onFocusChanged { if (it.hasFocus && Engine.isTv) sc.launch { ls.animateScrollToItem(0) } }
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     WebBtn(if (resume) "Resume" else "Play", main = true, label = (if (resume) "Resume " else "Play ") + title) { Engine.bookPlay(item, true, null) }
                     WebBtn("Play together", label = "Play $title together") { Engine.bookPlay(item, true, null, together = true) }
@@ -1833,7 +1925,7 @@ private fun BookPage(p: Page, openDrawer: () -> Unit) {
             item {
                 val about = listOf("Author" to (bd?.s("author") ?: item.author), "Read by" to (bd?.s("narrator") ?: item.narrator),
                     "Series" to series, "Genres" to (bd?.s("genres") ?: ""), "Published" to (bd?.s("year") ?: "")).filter { it.second.isNotEmpty() }
-                if (about.isNotEmpty()) Column(Modifier.padding(horizontal = 16.dp)) {
+                if (about.isNotEmpty()) Column(Modifier.padding(horizontal = 10.dp).tvReadable().padding(horizontal = 6.dp, vertical = 4.dp)) {
                     Text("About", color = EFg, fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
                     about.forEach { (k, v) ->
                         Text(k, color = EFg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp))
@@ -1936,7 +2028,7 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
     val dev = Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "Choose"
     @Composable fun card(title: String, sub: String, icon: ImageVector, onClick: () -> Unit) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp).clip(RoundedCornerShape(16.dp)).background(ECard)
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp).tvFocusKey("set|$title").clip(RoundedCornerShape(16.dp)).background(ECard)
                 .border(1.dp, ELine, RoundedCornerShape(16.dp)).clickable(onClick = onClick)
                 .semantics(mergeDescendants = true) { role = Role.Button }.padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -1978,7 +2070,7 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
     }
     Column(Modifier.fillMaxSize()) {
         TopBar(head, openDrawer, heading = !Look.low)
-        LazyColumn(contentPadding = PaddingValues(top = 6.dp, bottom = 190.dp)) {
+        LazyColumn(state = W.list(p), contentPadding = PaddingValues(top = 6.dp, bottom = 190.dp)) {
             if (Look.low) item {         // low vision: the page's name scrolls with it (as on the web page)
                 Text(head, color = EFg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,
                     modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 6.dp).semantics { heading() })
