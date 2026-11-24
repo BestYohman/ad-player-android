@@ -85,7 +85,7 @@ keys 20 3
 CARD=$(focused | cut -d'|' -f1)
 keys 23 1; sleep 3
 shot tv_22_opened 1
-expect "an opened page starts on its button" "$(focused)" "@(Play*|Resume*|Episodes*)"
+expect "an opened page starts on its first button" "$(focused)" "@(Play*|Resume*|Episodes*|Add*)"
 keys 4 1; sleep 2
 expect "Back returns to the same card" "$(focused | cut -d'|' -f1)" "$CARD"
 keys 4 1

@@ -2,6 +2,15 @@
 
 Each version below is a release on GitHub (Releases, "v1.8.0" and so on). The newest is also "AD Player (latest)".
 
+## 1.14.2 - 2026-11-24
+- **Google TV and Android TV, made for the remote:**
+  - The menu at the top slides away while you're on a page, so the page has the whole screen. Up from the top of a page, or Back, brings it back (and the page goes back to its very top).
+  - Opening a page puts you on its first button (Play or Resume). Back puts you on the card you opened it from.
+  - Every part of a page can be reached: Down goes all the way to the bottom (what it's about, the details, the cast, a book's About), and Up all the way back to the big picture at the top.
+  - Each row remembers where you were in it. "See all" is a card at the end of each row. On Shows and Movies the name and the chips scroll away with the posters, and Sort and filter is at the end of the chips.
+  - In the player, Back first hides the buttons, then stops the video.
+  - The outline on what the remote is on shows on white buttons too, and lists start on the current choice.
+
 ## 1.14.1 - 2026-11-23
 - **Google TV and Android TV:** the menu is along the top (Home, Shows, Movies, Books, Search, Settings, and Play on), like the web page on a computer, instead of down the side.
 - **Size on the TV:** everything is smaller on a TV now, and Settings, Screen and size has "Size on this TV" (Small, Medium, Large, Larger) to make it just right. It's kept on that TV only.
