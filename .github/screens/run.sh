@@ -124,6 +124,9 @@ open "kind=item&id=e1&extra=Episode&title=The%20Race%20Begins"
 shot 15d_episode_page 5
 open "kind=settings"
 shot 16_settings 3
+adb shell input swipe 540 1700 540 500 400; sleep 1
+adb shell input swipe 540 1700 540 500 400; sleep 2
+shot 16a_settings_end 1
 tapon "Server settings"
 shot 16b_server_settings 5
 adb shell input keyevent 4
