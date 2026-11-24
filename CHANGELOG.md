@@ -2,6 +2,12 @@
 
 Each version below is a release on GitHub (Releases, "v1.8.0" and so on). The newest is also "AD Player (latest)".
 
+## 1.14.1 - 2026-11-23
+- **Google TV and Android TV:** the menu is along the top (Home, Shows, Movies, Books, Search, Settings, and Play on), like the web page on a computer, instead of down the side.
+- **Size on the TV:** everything is smaller on a TV now, and Settings, Screen and size has "Size on this TV" (Small, Medium, Large, Larger) to make it just right. It's kept on that TV only.
+- **Back on the TV's remote** stops the video and goes back to the page (while playing together it asks first, like Stop). The Lock button isn't on the TV any more (the remote couldn't unlock it), and the remote's arrows don't get stuck on the position bar.
+- **Fixes:** play together ends properly when the sign-in runs out (it kept trying every second); TalkBack no longer reads the small player's clock over and over; a Join from a notification isn't done again when the phone is turned; "Settings" fits in the tabs with big text; the remote starts on the page's own menu item after the player closes.
+
 ## 1.14.0 - 2026-11-23
 - **Settings** (with a gear) instead of You, in the tabs at the bottom and in the TV's side menu.
 - **A movie's, show's or episode's page:** just the big picture at the top (no cover on the left), fading to black so the words on it are easy to read. An episode's picture is the one from that episode, and its show and its season and episode are bold, like its name, with no title line above.
