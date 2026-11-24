@@ -2,6 +2,9 @@
 
 Each version below is a release on GitHub (Releases, "v1.8.0" and so on). The newest is also "AD Player (latest)".
 
+## 1.14.3 - 2026-11-24
+- **The bar at the top** stays a floating glass bar as you scroll, as on the web page, with no black strip behind it - on Home and on a show's or movie's page, where it now floats over the big picture.
+
 ## 1.14.2 - 2026-11-24
 - **Google TV and Android TV, made for the remote:**
   - The menu at the top slides away while you're on a page, so the page has the whole screen. Up from the top of a page, or Back, brings it back (and the page goes back to its very top).
