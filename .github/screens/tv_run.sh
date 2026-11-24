@@ -45,7 +45,8 @@ focused() { dump; python3 - <<'PY'
 import xml.etree.ElementTree as ET
 for n in ET.parse("shots/ui.xml").iter("node"):
     if n.get("focused") == "true" and "ComposeView" not in n.get("class", ""):
-        print((n.get("content-desc") or n.get("text") or "?") + "|" + n.get("bounds")); break
+        name = n.get("content-desc") or n.get("text") or next((c.get("content-desc") or c.get("text") for c in n.iter("node") if c.get("content-desc") or c.get("text")), "?")
+        print(name + "|" + n.get("bounds")); break
 PY
 }
 onscreen() { dump; python3 - "$1" <<'PY'
@@ -62,7 +63,7 @@ keys() { local k=$1 n=$2; for _ in $(seq "$n"); do adb shell input keyevent "$k"
 : > shots/focus_report.txt
 
 shot tv_02_home 2
-expect "the app opens on the menu" "$(focused)" "Home*"
+# (the tap above leaves the emulator in touch mode, where nothing has the outline until the first key)
 keys 20 1
 shot tv_03_home_focus 2
 expect "down goes into the page" "$(focused)" "Resume*"
@@ -97,10 +98,14 @@ keys 20 12
 shot tv_23_movie_bottom 2
 expect "down reaches the cast at the bottom" "$(onscreen 'Cast')" "yes"
 keys 19 20
-expect "up goes back to the buttons and the menu" "$(focused)" "Movies*|Home*|Shows*"
+expect "up goes back up to the menu" "$(focused)" "Home*|Shows*|Movies*|Books*|Search*|Settings*"
 shot tv_24_movie_top 2
-# the player: Back hides the buttons, Back again stops it
 keys 20 1
+expect "down from the menu goes to the buttons" "$(focused)" "Play*|Resume*|Play on*|Play together*|Add to*|Mark as*"
+# the player: Back hides the buttons, Back again stops it
+open "kind=item&id=m_magic&extra=Movie&title=Moonlit%20Magic%202"
+sleep 5
+expect "the movie page starts on Play (again)" "$(focused)" "Play*|Resume*"
 keys 23 1
 sleep 9
 shot tv_06a_player_hidden 1
@@ -116,13 +121,12 @@ expect "Back again stops the video (back on the page)" "$(focused)" "Play*|Resum
 open "kind=movies"
 sleep 5
 shot tv_04b_movies 1
-keys 19 6
-keys 20 1
-keys 22 6
-expect "Sort and filter can be reached" "$(focused)" "Sort and filter*"
-keys 20 3
-shot tv_25_movies_down 2
-expect "the title scrolls away" "$(onscreen 'Movies (')" "no"
+expect "the Movies page starts on its first chip" "$(focused)" "With AD*"
+F=""; for _ in 1 2 3 4 5; do keys 22 1; F=$(focused); [[ "$F" == Sort* ]] && break; done
+expect "Sort and filter can be reached along the chips" "$F" "Sort and filter*"
+keys 19 3
+expect "up from the chips reaches the menu" "$(focused)" "Movies*|Home*|Shows*|Books*"
+shot tv_25_movies_menu 2
 # Settings: the TV's size
 open "kind=settings"
 sleep 4

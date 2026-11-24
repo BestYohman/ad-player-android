@@ -933,6 +933,7 @@ private fun Action(label: String, icon: ImageVector, tint: Color = EFg, onTap: (
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Refreshable(modifier: Modifier, belowTopBar: Boolean, content: @Composable BoxScope.() -> Unit) {
+    if (Engine.isTv) { Box(modifier, content = content); return }        // (a TV can't pull down; pages bring themselves up to date)
     var refreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val state = rememberPullToRefreshState()

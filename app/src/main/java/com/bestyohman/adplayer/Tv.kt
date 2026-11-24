@@ -87,9 +87,13 @@ object TvFocusIndication : IndicationNodeFactory {
             if (focused) {
                 val w = 4.dp.toPx(); val r = CornerRadius(14.dp.toPx())
                 drawRoundRect(Color.White.copy(alpha = 0.16f), cornerRadius = r)
-                drawRoundRect(if (Look.low) EGreen else Color.White, cornerRadius = r, style = Stroke(width = w),
+                drawRoundRect(EGreen, cornerRadius = r, style = Stroke(width = w),
                     topLeft = androidx.compose.ui.geometry.Offset(w / 2, w / 2),
                     size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w))
+                // a thin dark line just inside, so the outline stands out on a white button or a bright picture too
+                val t = 2.dp.toPx(); val o = w + t / 2
+                if (size.width > 2 * o && size.height > 2 * o) drawRoundRect(Color(0xB3000000), cornerRadius = CornerRadius(10.dp.toPx()), style = Stroke(width = t),
+                    topLeft = androidx.compose.ui.geometry.Offset(o, o), size = androidx.compose.ui.geometry.Size(size.width - 2 * o, size.height - 2 * o))
             }
         }
     }
