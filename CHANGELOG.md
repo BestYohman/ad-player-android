@@ -2,6 +2,13 @@
 
 Each version below is a release on GitHub (Releases, "v1.8.0" and so on). The newest is also "AD Player (latest)".
 
+## 1.14.5 - 2026-11-25
+- **Google TV and Android TV:**
+  - The menu at the top floats over the page: on Home and on a show's or movie's page the big picture goes right up under it, instead of being cut off below it.
+  - The buttons on a show's or movie's page are all the same height (Play was taller than the rest).
+  - In the player, Play / Pause is in the row of buttons at the bottom, where the remote starts. The skip back and forward buttons are gone, and so is Full screen (a TV is always full screen).
+  - No Play on (cast) buttons on a TV: not in the menu, on a page, in the player or in Settings.
+
 ## 1.14.4 - 2026-11-24
 - **Server settings:** whoever runs the AD Player Server (its admins, and the people picked in its Settings) has a Server settings card in Settings. It opens the server's own page inside the app - AD files, the queue, people and the settings - already signed in.
 

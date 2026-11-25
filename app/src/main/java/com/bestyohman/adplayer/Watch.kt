@@ -325,18 +325,19 @@ fun WatchApp(act: MainActivity) {
         if (Engine.isTv) Surface(Modifier.fillMaxSize(), color = EBg) {
             // a TV: the menu down the side, the page beside it (the remote's arrows move between them)
             androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.LocalIndication provides TvFocusIndication) {
-                Column(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxSize()) {
                     // the menu slides away while the remote is on the page (it can't be used from there anyway); it's
-                    // still just above the page, so Up from the top of the page (or Back) reaches it and it comes back
+                    // still just above the page, so Up from the top of the page (or Back) reaches it and it comes back.
+                    // It floats over the page: a page with a picture at the top (Home, a show or movie) has the picture
+                    // go right up under it, as on the web page; other pages start below it.
                     val shown by androidx.compose.animation.core.animateFloatAsState(if (TvNav.navIn) 1f else 0f, label = "menu")
-                    Box(Modifier.onFocusChanged { TvNav.navIn = it.hasFocus }.clipToBounds().layout { m, c ->
-                        val pl = m.measure(c.copy(minHeight = 0, maxHeight = androidx.compose.ui.unit.Constraints.Infinity))
-                        val h = (pl.height * shown).roundToInt()
-                        layout(pl.width, h) { pl.place(0, h - pl.height) }
-                    }) { TvTopNav() }
+                    var navH by remember { mutableIntStateOf(0) }
+                    val page = W.stack.last()
+                    val underMenu = !Look.low && (page.kind == "home" || (page.kind == "item" && page.extra != "Season"))
+                    val dens = androidx.compose.ui.platform.LocalDensity.current
+                    val topPad = if (underMenu) 0.dp else with(dens) { (navH * shown).toDp() }
                     // on the menu for a moment: the page goes back to its top (what's at the top of it shows)
                     LaunchedEffect(TvNav.navIn) { if (TvNav.navIn) { delay(350); if (TvNav.navIn) W.scrollTop() } }
-                    val page = W.stack.last()
                     // a page that opens (not from the menu): the remote goes into it - to the card it was on before, or else
                     // its first button or card (tried for a moment, as the page's things arrive from the PC)
                     LaunchedEffect(page) {
@@ -350,13 +351,19 @@ fun WatchApp(act: MainActivity) {
                             if (i >= wait) runCatching { TvNav.pageFr.requestFocus() }
                         }
                     }
-                    Box(Modifier.weight(1f).fillMaxWidth().focusRequester(TvNav.pageFr).onFocusChanged { TvNav.pageHas = it.hasFocus }.focusGroup()) {
+                    Box(Modifier.fillMaxSize().padding(top = topPad).focusRequester(TvNav.pageFr).onFocusChanged { TvNav.pageHas = it.hasFocus }.focusGroup()) {
                         androidx.compose.runtime.CompositionLocalProvider(LocalPage provides page) { key(page) { PageContent(page) {} } }
                         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().widthIn(max = 900.dp)) {
                             if (W.toast.isNotEmpty()) Toast(W.toast)
                             MiniPlayer()
                         }
                     }
+                    Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().onFocusChanged { TvNav.navIn = it.hasFocus }.clipToBounds().layout { m, c ->
+                        val pl = m.measure(c.copy(minHeight = 0, maxHeight = androidx.compose.ui.unit.Constraints.Infinity))
+                        if (pl.height != navH) navH = pl.height
+                        val h = (pl.height * shown).roundToInt()
+                        layout(pl.width, h) { pl.place(0, h - pl.height) }
+                    }) { TvTopNav() }
                 }
             }
         } else Surface(Modifier.fillMaxSize(), color = EBg) {
@@ -1396,7 +1403,7 @@ private fun MoreMenu(item: Item, open: Boolean, onClose: () -> Unit, extra: List
 @Composable
 fun WebBtn(text: String, main: Boolean = false, label: String? = null, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
-        modifier.heightIn(min = if (Look.low) 64.dp else if (main) 52.dp else 46.dp).focusRing().clip(RoundedCornerShape(if (Look.low) 14.dp else 12.dp))
+        modifier.heightIn(min = if (Look.low) 64.dp else if (main || Engine.isTv) 52.dp else 46.dp).focusRing().clip(RoundedCornerShape(if (Look.low) 14.dp else 12.dp))
             .background(if (main) EMain else EBtn2)
             .then(if (main && !Look.low) Modifier else Modifier.border(Look.line, if (main) EMain else ELine, RoundedCornerShape(if (Look.low) 14.dp else 12.dp)))
             .clickable(onClick = onClick).semantics { role = Role.Button; if (label != null) contentDescription = label }
@@ -1527,7 +1534,7 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                     val pl = W.isPlayed(info)
                     WebBtn(if (pl) "Mark as not watched" else "Mark as watched", modifier = bm) { W.markPlayed(info, !pl) }
                     if (info.hasAd == false) WebBtn(if (info.requested) "Asked for audio description" else "Ask for audio description", modifier = bm) { Engine.askForAd(info) }
-                    WebBtn("Play on…", modifier = bm) { castOpen = true }
+                    if (!Engine.isTv) WebBtn("Play on…", modifier = bm) { castOpen = true }
                 }
             }
             // (a TV: the tagline and what it's about are one stop for the remote, so it can scroll down to them)
@@ -1938,7 +1945,7 @@ private fun BookPage(p: Page, openDrawer: () -> Unit) {
                         if (saved != null) W.go(Page("downloads")) else Offline.downloadBook(item)
                     }
                     WebBtn("Bookmarks") { bmOpen = true }
-                    WebBtn("Play on…") { castOpen = true }
+                    if (!Engine.isTv) WebBtn("Play on…") { castOpen = true }
                 }
             }
             item { Box(Modifier.padding(top = 8.dp)) { Overview(bd?.s("description") ?: "") } }
@@ -2178,7 +2185,7 @@ private fun SettingsPage(p: Page, openDrawer: () -> Unit) {
                         (SCREENS.firstOrNull { it.first == Engine.sOpt("screen") }?.second ?: "Dark") else "") +
                         (if (Engine.isTv) " · ${(TvSize.opts.firstOrNull { it.first == TvSize.v }?.second ?: "Medium")} on this TV" else ""), Ic.Eye) { W.go(Page("settings", "sight")) } }
                     item { card("Playback", "Video quality ${Engine.qualityLabel()}", Ic.Play) { W.go(Page("settings", "playback")) } }
-                    item { card("Play on", dev, Ic.Cast) { castOpen = true } }
+                    if (!Engine.isTv) item { card("Play on", dev, Ic.Cast) { castOpen = true } }
                     if (Engine.devHelp.isNotEmpty()) item { Text(Engine.devHelp, color = ESub, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)) }
                     item { card("Downloads", "What's on this phone, and how it downloads", Ic.Download) { W.go(Page("settings", "downloads")) } }
                     item { card("Favorites", "Shows and movies you marked", Ic.HeartFull) { W.go(Page("favorites")) } }

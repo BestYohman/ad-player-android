@@ -1,6 +1,7 @@
 package com.bestyohman.adplayer
 
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.focus.focusRequester
@@ -342,14 +343,14 @@ private fun WebControls(v: Engine.Vid, info: Item?, act: MainActivity, touch: ()
                     fontWeight = FontWeight.ExtraBold, lineHeight = 24.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (Engine.tg != null) Text("Playing together", color = EGreen, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             }
-            GlassButton(Ic.Cast, "Play on", wide = true) { openDialog("cast") }
+            if (!Engine.isTv) GlassButton(Ic.Cast, "Play on", wide = true) { openDialog("cast") }
         }
         if (Engine.tg != null) TogetherBox(Color.White, Color(0xFFC9CED6), Color(0x66FFFFFF),
             Modifier.fillMaxWidth().padding(top = 96.dp, start = 12.dp, end = 12.dp).statusBarsPadding()
                 .clip(RoundedCornerShape(12.dp)).background(Color(0x99000000)).padding(horizontal = 12.dp, vertical = 8.dp))
         val ppFocus = remember { androidx.compose.ui.focus.FocusRequester() }
         LaunchedEffect(Unit) { if (Engine.isTv) { delay(80); try { ppFocus.requestFocus() } catch (e: Exception) { } } }   // the remote starts on Play / Pause
-        Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(36.dp)) {
+        if (!Engine.isTv) Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(36.dp)) {
             GlassRound(Ic.Replay, if (local) "Back 10 seconds" else "Back 30 seconds", 60.dp) { Engine.cmd(if (local) "back10" else "back30"); touch() }
             val paused = !exo.playWhenReady
             GlassRound(if (paused) Ic.Play else Ic.Pause, if (paused) "Play" else "Pause", 84.dp, Modifier.focusRequester(ppFocus)) { Engine.cmd("playpause"); touch() }
@@ -376,11 +377,17 @@ private fun WebControls(v: Engine.Vid, info: Item?, act: MainActivity, touch: ()
                 Text("-" + clock(dur - shownPos), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             }
             Box(Modifier.fillMaxWidth().padding(vertical = 8.dp).height(1.dp).background(ELine))
-            androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            // (a TV: one row the remote moves along, Play / Pause first - where it starts)
+            val rowMod = if (Engine.isTv) Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()) else Modifier.fillMaxWidth()
+            androidx.compose.foundation.layout.FlowRow(rowMod, horizontalArrangement = if (Engine.isTv) Arrangement.spacedBy(4.dp) else Arrangement.SpaceEvenly) {
+                if (Engine.isTv) {
+                    val paused = !exo.playWhenReady
+                    NamedBtn(if (paused) Ic.Play else Ic.Pause, if (paused) "Play" else "Pause", Modifier.focusRequester(ppFocus)) { Engine.cmd("playpause"); touch() }
+                }
                 NamedBtn(Ic.Stop, if (Engine.tg != null) "Stop for everyone" else "Stop") { Engine.stopPressed { W.player = false } }
                 if (v.hasNext || ep) NamedBtn(Ic.Next, "Next episode") { Engine.cmd("next"); touch() }
                 if (Engine.tg == null) NamedBtn(Ic.Subtitles, "Audio and subtitles") { W.trk = v.item }
-                NamedBtn(Ic.Rotate, "Full screen") { act.toggleLandscape(); touch() }
+                if (!Engine.isTv) NamedBtn(Ic.Rotate, "Full screen") { act.toggleLandscape(); touch() }
                 if (!Engine.isTv) NamedBtn(Ic.Lock, "Lock the screen") { lock() }
                 NamedBtn(Ic.Speed, "Speed") { if (Engine.tg != null) Engine.say("The speed stays the same while playing together.") else openDialog("speed") }
                 NamedBtn(Ic.Settings, "Settings") { openDialog("settings") }
@@ -407,9 +414,9 @@ private fun GlassRound(icon: ImageVector, label: String, size: androidx.compose.
 
 /** A player button with its name under it, as on the web page. */
 @Composable
-private fun NamedBtn(icon: ImageVector, label: String, onClick: () -> Unit) {
+private fun NamedBtn(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Column(
-        Modifier.width(104.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick)
+        modifier.width(104.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick)
             .semantics(mergeDescendants = true) { role = androidx.compose.ui.semantics.Role.Button }.padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {

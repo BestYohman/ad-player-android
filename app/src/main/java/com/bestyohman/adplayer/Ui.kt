@@ -357,15 +357,17 @@ fun ChoiceDialog(title: String, options: List<Pair<String, String>>, selected: S
 private fun WhereSection() {
     var open by remember { mutableStateOf(false) }
     Section {
-        Heading("Play on")
-        val cur = Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "Choose…"
-        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Play on: $cur. Change" }) {
-            Text(cur, Modifier.fillMaxWidth(), textAlign = TextAlign.Start)
+        if (!Engine.isTv) {                     // (a TV is the screen - nothing to send it to)
+            Heading("Play on")
+            val cur = Engine.devices.firstOrNull { it.id == Engine.dev }?.name ?: "Choose…"
+            OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Play on: $cur. Change" }) {
+                Text(cur, Modifier.fillMaxWidth(), textAlign = TextAlign.Start)
+            }
+            if (open) ChoiceDialog("Play on", Engine.devices.map { it.id to it.name }, Engine.dev, { Engine.pickDevice(it) }, { open = false })
+            TextButton(onClick = { Engine.refreshDevices() }) { Text("Refresh TV list") }
+            if (Engine.devHelp.isNotEmpty()) Text(Engine.devHelp, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
         }
-        if (open) ChoiceDialog("Play on", Engine.devices.map { it.id to it.name }, Engine.dev, { Engine.pickDevice(it) }, { open = false })
-        TextButton(onClick = { Engine.refreshDevices() }) { Text("Refresh TV list") }
-        if (Engine.devHelp.isNotEmpty()) Text(Engine.devHelp, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(8.dp))
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("books" to "Audiobooks", "shows" to "Shows", "movies" to "Movies").forEach { (k, l) ->
                 val on = Engine.what == k
