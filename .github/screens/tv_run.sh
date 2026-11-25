@@ -57,6 +57,14 @@ for n in ET.parse("shots/ui.xml").iter("node"):
 else: print("no")
 PY
 }
+seen() { python3 - "$1" <<'PY'
+import sys, re, xml.etree.ElementTree as ET
+for n in ET.parse("shots/ui.xml").iter("node"):
+    if sys.argv[1] in ((n.get("text") or "") + "|" + (n.get("content-desc") or "")):
+        a, b, c, d = map(int, re.findall(r"-?\d+", n.get("bounds"))); print("yes" if b >= 0 and d <= 1080 and d > b else "no"); break
+else: print("no")
+PY
+}
 shopt -s extglob
 FAILS=""
 expect() { if [[ "$2" == $3 ]]; then echo "OK   $1 ($2)"; else echo "FAIL $1: got '$2'"; FAILS=1; fi | tee -a shots/focus_report.txt; }
@@ -112,9 +120,10 @@ shot tv_06a_player_hidden 1
 key 19
 shot tv_06_player_controls 0
 expect "up shows the player's buttons" "$(onscreen 'Stats for nerds')" "yes"
-expect "Play / Pause is in the row at the bottom" "$(onscreen 'Pause')" "yes"
-expect "no skip buttons on a TV" "$(onscreen 'Forward 30 seconds')" "no"
-expect "no Play on in the player on a TV" "$(onscreen 'Play on')" "no"
+# (from the same look at the screen - another one takes too long: the buttons hide by themselves after a few seconds)
+expect "Play / Pause is in the row at the bottom" "$(seen 'Pause')" "yes"
+expect "no skip buttons on a TV" "$(seen 'Forward 30 seconds')" "no"
+expect "no Play on in the player on a TV" "$(seen 'Play on')" "no"
 adb shell input keyevent 4; sleep 1      # (quickly: the buttons hide by themselves after a few seconds)
 expect "Back first hides the player's buttons" "$(onscreen 'Stats for nerds')" "no"
 shot tv_06b_back_hides 0
