@@ -194,8 +194,8 @@ fun PlayerScreen(act: MainActivity) {
         "settings" -> ChoiceDialog("Settings", buildList {
             add("quality" to "Video quality: " + Engine.qualityLabel())
             if (Engine.tg != null) add("delay" to "Headphone delay: " + (Engine.delays.firstOrNull { it.first == Engine.headphoneDelay }?.second ?: Engine.headphoneDelay))
-            add("stop" to if (Engine.tg != null) "Stop for everyone" else "Stop playing")
-            if (Engine.tg != null) add("leave" to "Leave - the others carry on")
+            add("stop" to if (Engine.tgShared) "Stop for everyone" else "Stop playing")
+            if (Engine.tgShared) add("leave" to "Leave - the others carry on")
         }, "", {
             when (it) {
                 "quality" -> dialog = "quality"
@@ -306,8 +306,8 @@ private fun Controls(v: Engine.Vid, info: Item?, act: MainActivity, touch: () ->
                 Btn(Ic.Settings, "Settings") { openDialog("settings") }
                 Btn(Ic.Rotate, "Turn sideways") { act.toggleLandscape(); touch() }
                 Btn(Ic.Chart, "Stats for nerds") { stats(); touch() }
-                if (Engine.tg != null) Btn(Ic.Group, if (Engine.isTv) "Send it to a phone" else "Invite people") { Engine.inviteOpen(); touch() }
-                else if (Engine.isTv) Btn(Ic.Group, "Continue on a phone") { Engine.tgTakeAlong(); touch() }
+                if (Engine.tg != null) Btn(Ic.Group, "Invite people") { Engine.inviteOpen(); touch() }
+                else if (Engine.isTv) Btn(Ic.Group, "Play together") { Engine.tgTakeAlong(); touch() }
                 if (land) { Spacer(Modifier.weight(1f)); Tabs(info, ep, openSheet) }
             }
             if (!land) Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(26.dp)) {
@@ -384,7 +384,7 @@ private fun WebControls(v: Engine.Vid, info: Item?, act: MainActivity, touch: ()
                     val paused = !exo.playWhenReady
                     NamedBtn(if (paused) Ic.Play else Ic.Pause, if (paused) "Play" else "Pause", Modifier.focusRequester(ppFocus)) { Engine.cmd("playpause"); touch() }
                 }
-                NamedBtn(Ic.Stop, if (Engine.tg != null) "Stop for everyone" else "Stop") { Engine.stopPressed { W.player = false } }
+                NamedBtn(Ic.Stop, if (Engine.tgShared) "Stop for everyone" else "Stop") { Engine.stopPressed { W.player = false } }
                 if (v.hasNext || ep) NamedBtn(Ic.Next, "Next episode") { Engine.cmd("next"); touch() }
                 if (Engine.tg == null) NamedBtn(Ic.Subtitles, "Audio and subtitles") { W.trk = v.item }
                 if (!Engine.isTv) NamedBtn(Ic.Rotate, "Full screen") { act.toggleLandscape(); touch() }
@@ -393,8 +393,8 @@ private fun WebControls(v: Engine.Vid, info: Item?, act: MainActivity, touch: ()
                 NamedBtn(Ic.Settings, "Settings") { openDialog("settings") }
                 NamedBtn(Ic.Info, "Info") { openSheet("info") }
                 NamedBtn(Ic.Chart, "Stats for nerds") { stats(); touch() }
-                if (Engine.tg != null) NamedBtn(Ic.Group, if (Engine.isTv) "Send it to a phone" else "Invite people") { Engine.inviteOpen(); touch() }
-                else if (Engine.isTv) NamedBtn(Ic.Group, "Continue on a phone") { Engine.tgTakeAlong(); touch() }
+                if (Engine.tg != null) NamedBtn(Ic.Group, "Invite people") { Engine.inviteOpen(); touch() }
+                else if (Engine.isTv) NamedBtn(Ic.Group, "Play together") { Engine.tgTakeAlong(); touch() }
                 if (info?.j?.optJSONArray("chapters").objs().isNotEmpty()) NamedBtn(Ic.ListIc, "Chapters") { openSheet("chapters") }
                 if (ep) NamedBtn(Ic.Next, "Up next") { openSheet("next") }
             }

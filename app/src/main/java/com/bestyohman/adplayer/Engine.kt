@@ -1647,13 +1647,15 @@ object Engine {
         val v = vd ?: return
         if (tg != null) { inviteOpen(); return }
         if (!isPhone || mode != Mode.VIDEO) { say("This works for what plays on this TV."); return }
+        // it pauses here while she chooses who to invite; when they join it starts again by itself, in step
+        exo.pause()
         launchSafe {
             val d = Api.post("/api/play/together/start", mapOf("cid" to Prefs.cid, "kind" to "video", "item" to v.item,
                 "pos" to (exo.currentPosition / 1000.0).toString(), "mode" to "video", "title" to v.title, "invite" to "",
-                "run" to "1", "dev" to devName))
+                "dev" to devName))
             if (d.err().isNotEmpty()) { say(d.err()); return@launchSafe }
             tgBegin(d, adopt = true)
-            say("Playing together - it carries on here. Choose whose phone to send it to.")
+            say("Paused to play together. Choose who to invite - when they join it starts again by itself, or press Play to start now.")
             inviteOpen(first = true)
         }
     }
@@ -1895,7 +1897,7 @@ object Engine {
         val d = t.last
         var c = c0
         if (c == "volup" || c == "voldown") { say("Use the phone's volume buttons."); return }
-        if (c == "stop") { tgStopAll(); return }
+        if (c == "stop") { if (tgShared) tgStopAll() else { tgLeave(true); say("Stopped.") }; return }
         if (c == "playpause") c = if (d.b("want") && !d.b("waiting")) "pause" else "play"
         if (c == "unpause") c = "play"
         if (c == "play") t.held = false
@@ -1942,10 +1944,13 @@ object Engine {
         }
     }
 
-    /** Stop, from the app's own buttons: playing together, she's asked first (it stops the others too). */
+    /** Playing together with someone else in it now (nobody else yet, or they've all left: Stop just stops). */
+    val tgShared: Boolean get() { tick; return tg?.last?.optJSONArray("others").strs().isNotEmpty() }
+
+    /** Stop, from the app's own buttons: playing together with others, she's asked first (it stops them too). */
     var askStopAll by mutableStateOf<(() -> Unit)?>(null)
     fun stopPressed(after: () -> Unit = {}) {
-        if (tg != null) { askStopAll = after; return }
+        if (tgShared) { askStopAll = after; return }
         cmd("stop"); after()
     }
 

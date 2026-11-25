@@ -329,15 +329,11 @@ fun WatchApp(act: MainActivity) {
                 Column(Modifier.fillMaxSize()) {
                     // the menu slides away while the remote is on the page (it can't be used from there anyway); it's
                     // still just above the page, so Up from the top of the page (or Back) reaches it and it comes back.
-                    // A page with a picture at the top (Home, a show or movie) has the picture drawn right up under the
-                    // see-through menu, as on the web page; other pages start below it.
+                    // Every page starts below it: when the menu comes down, the page moves down with it (it never covers
+                    // the top of a picture).
                     val shown by androidx.compose.animation.core.animateFloatAsState(if (TvNav.navIn) 1f else 0f, label = "menu")
                     var navH by remember { mutableIntStateOf(0) }
                     val page = W.stack.last()
-                    val underMenu = !Look.low && (page.kind == "home" || (page.kind == "item" && page.extra != "Season"))
-                    // The page itself (what the remote moves into) always starts below the menu - the remote's Down from
-                    // the menu only goes to things below it; a page with a picture is drawn moved up under the menu.
-                    val menuPx = (navH * shown).roundToInt()
                     Box(Modifier.zIndex(1f).onFocusChanged { TvNav.navIn = it.hasFocus }.clipToBounds().layout { m, c ->
                         val pl = m.measure(c.copy(minHeight = 0, maxHeight = androidx.compose.ui.unit.Constraints.Infinity))
                         if (pl.height != navH) navH = pl.height
@@ -360,10 +356,7 @@ fun WatchApp(act: MainActivity) {
                         }
                     }
                     Box(Modifier.weight(1f).fillMaxWidth().focusRequester(TvNav.pageFr).onFocusChanged { TvNav.pageHas = it.hasFocus }.focusGroup()) {
-                        Box(if (!underMenu) Modifier.fillMaxSize() else Modifier.fillMaxSize().layout { m, c ->
-                            val pl = m.measure(c.copy(minHeight = c.minHeight + menuPx, maxHeight = c.maxHeight + menuPx))
-                            layout(c.maxWidth, c.maxHeight) { pl.place(0, -menuPx) }
-                        }) {
+                        Box(Modifier.fillMaxSize()) {
                             androidx.compose.runtime.CompositionLocalProvider(LocalPage provides page) { key(page) { PageContent(page) {} } }
                         }
                         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().widthIn(max = 900.dp)) {
@@ -616,7 +609,7 @@ private fun MiniPlayer() {
             }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp), horizontalArrangement = if (Look.low) Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally) else Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            MiniBtn(Ic.Stop, if (Engine.tg != null) "Stop for everyone" else "Stop") { Engine.stopPressed() }
+            MiniBtn(Ic.Stop, if (Engine.tgShared) "Stop for everyone" else "Stop") { Engine.stopPressed() }
             MiniBtn(Ic.Replay, if (local) "Back 10 seconds" else "Back 30 seconds") { Engine.cmd(if (local) "back10" else "back30") }
             Box(
                 Modifier.size(if (Look.low) 54.dp else 52.dp).clip(if (Look.low) RoundedCornerShape(14.dp) else CircleShape).background(EMain).clickable { Engine.cmd("playpause") }
@@ -1421,7 +1414,7 @@ fun WebBtn(text: String, main: Boolean = false, label: String? = null, modifier:
 
 /** A show's, movie's or episode's page, as on the web page: the name, the picture, the buttons, what it's about, the
  *  details and the cast; a show has its seasons as buttons with that season's episodes under them. */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun DetailPage(p: Page, openDrawer: () -> Unit) {
     val (d, err) = rememberData("/api/play/info?id=${enc(p.id)}")
@@ -1445,6 +1438,12 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         if (!float) TopBar(null, openDrawer, heading = false)
         Box(Modifier.fillMaxSize()) {
+        // a TV: the picture is most of the screen, from its top (its bottom fades into the page); a third of the screen
+        // is the screen's height in this page's own size
+        val tvPicH = if (Engine.isTv) (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp *
+            android.content.res.Resources.getSystem().displayMetrics.density / androidx.compose.ui.platform.LocalDensity.current.density * 0.62f).dp else 0.dp
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides
+            (if (Engine.isTv) TvCalmScroll else androidx.compose.foundation.gestures.LocalBringIntoViewSpec.current)) {
         LazyColumn(Modifier.fillMaxSize().tvScrollEnds(ls), state = ls, contentPadding = PaddingValues(bottom = 190.dp)) {
             if (float && info == null) item { Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars).height(84.dp)) }
             val ep = p.extra == "Episode" || info?.type == "Episode"
@@ -1458,8 +1457,10 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
             val j = info.j
             val playable = ep || info.type == "Movie"
             if (Look.low) {
-                // an episode: its own picture from the episode (not the show's)
-                val bd = (if (ep) info.thumb.ifEmpty { j.s("series_backdrop") } else info.backdrop.ifEmpty { j.s("series_backdrop") }).ifEmpty { info.thumb }
+                // an episode: its own picture from the episode (not the show's) - on a TV, the show's (an episode's is
+                // usually small, and blurry on a big screen)
+                val bd = (if (ep && Engine.isTv) j.s("series_backdrop").ifEmpty { info.thumb }
+                    else if (ep) info.thumb.ifEmpty { j.s("series_backdrop") } else info.backdrop.ifEmpty { j.s("series_backdrop") }).ifEmpty { info.thumb }
                 if (bd.isNotEmpty() && Look.posters) item {
                     AsyncImage(picUrl(bd, 1280), null, Img.loader, Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(ECard), contentScale = ContentScale.Crop)
                 }
@@ -1474,17 +1475,23 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                     }
                 }
             } else item {
-                // an episode: its own picture from the episode (not the show's)
-                val bd = if (ep) info.thumb.ifEmpty { j.s("series_backdrop") } else info.backdrop.ifEmpty { j.s("series_backdrop") }
+                // an episode: its own picture from the episode (not the show's) - on a TV, the show's (an episode's is
+                // usually small, and blurry on a big screen)
+                val bd = if (ep && Engine.isTv) j.s("series_backdrop").ifEmpty { info.thumb }
+                    else if (ep) info.thumb.ifEmpty { j.s("series_backdrop") } else info.backdrop.ifEmpty { j.s("series_backdrop") }
                 val big = bd.isNotEmpty() && Look.posters          // the big picture only, no cover on the left
+                val tvBig = big && Engine.isTv
                 Box(Modifier.fillMaxWidth()) {
-                    Box(Modifier.fillMaxWidth().height((if (big) 250.dp else 220.dp) + lift).background(ECard)) {
-                        if (bd.isNotEmpty() && Look.posters) AsyncImage(picUrl(bd, 1920), null, Img.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    // (the picture from its top: the top of it is never cut off)
+                    Box(Modifier.fillMaxWidth().height(if (tvBig) tvPicH else (if (big) 250.dp else 220.dp) + lift).background(ECard)) {
+                        if (bd.isNotEmpty() && Look.posters) AsyncImage(picUrl(bd, 1920), null, Img.loader, Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
                         // The bottom of the picture fades gradually to the page's black so the names on it stay readable.
                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                             0f to Color(0x000B0D11), 0.35f to Color(0x660B0D11), 0.65f to Color(0xD90B0D11), 1f to EBg)))
                     }
-                    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = (if (big) 130.dp else 80.dp) + lift), verticalAlignment = Alignment.Bottom) {
+                    Row((if (tvBig) Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 2.dp)
+                        else Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = (if (big) 130.dp else 80.dp) + lift)), verticalAlignment = Alignment.Bottom) {
                         if (!big) {
                             val pic = if (ep) info.thumb.ifEmpty { info.poster } else info.poster.ifEmpty { info.thumb }
                             Poster(info, pic, if (ep) 600 else 360, Modifier.width(if (ep) 180.dp else 120.dp).aspectRatio(if (ep) 16f / 9f else 2f / 3f), info.name)
@@ -1511,8 +1518,13 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
             }
             item {
                 val sc = rememberCoroutineScope()
-                // a TV: on the buttons, the page goes right to its top (the picture and the name show)
-                FlowRow(Modifier.fillMaxWidth().onFocusChanged { if (it.hasFocus && Engine.isTv) sc.launch { ls.animateScrollToItem(0) } }
+                // a TV: coming onto the buttons, the page goes right to its top (the picture and the name show); moving
+                // along them, it stays still
+                var onBtns by remember { mutableStateOf(false) }
+                FlowRow(Modifier.fillMaxWidth().onFocusChanged {
+                        if (it.hasFocus && !onBtns && Engine.isTv && (ls.firstVisibleItemIndex > 0 || ls.firstVisibleItemScrollOffset > 0)) sc.launch { ls.animateScrollToItem(0) }
+                        onBtns = it.hasFocus
+                    }
                     .padding(start = 16.dp, end = 16.dp, top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp), maxItemsInEachRow = if (Look.low) 1 else Int.MAX_VALUE) {
                     val bm = if (Look.low) Modifier.fillMaxWidth() else Modifier
@@ -1602,6 +1614,7 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
                     }
                 }
             }
+        }
         }
         if (float) {
             val scrolled by remember { derivedStateOf { ls.firstVisibleItemIndex > 0 || ls.firstVisibleItemScrollOffset > 120 } }
@@ -1910,6 +1923,12 @@ private fun BookPage(p: Page, openDrawer: () -> Unit) {
     val title = bd?.s("title")?.ifEmpty { null } ?: item.label
     Column(Modifier.fillMaxSize()) {
         TopBar(null, openDrawer, heading = false)
+        // a TV: the picture is most of the screen, from its top (its bottom fades into the page); a third of the screen
+        // is the screen's height in this page's own size
+        val tvPicH = if (Engine.isTv) (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp *
+            android.content.res.Resources.getSystem().displayMetrics.density / androidx.compose.ui.platform.LocalDensity.current.density * 0.62f).dp else 0.dp
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides
+            (if (Engine.isTv) TvCalmScroll else androidx.compose.foundation.gestures.LocalBringIntoViewSpec.current)) {
         LazyColumn(Modifier.fillMaxSize().tvScrollEnds(ls), state = ls, contentPadding = PaddingValues(bottom = 190.dp)) {
             item {
                 Text(title, color = EFg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,

@@ -160,6 +160,19 @@ fun Modifier.tvScrollEnds(ls: androidx.compose.foundation.lazy.LazyListState): M
     }
 }
 
+/** A TV: how a page scrolls as the remote moves. Something already in full view stays where it is (moving along a row of
+ *  buttons doesn't move the page up and down); something out of view (or partly) comes in a third of the way down, as
+ *  the TV normally does it. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+object TvCalmScroll : androidx.compose.foundation.gestures.BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val end = offset + size
+        if (offset >= 0f && end <= containerSize * 0.85f) return 0f
+        if (offset < 0f && end > containerSize) return 0f                     // (bigger than the screen and on it)
+        return offset - if (size <= containerSize * 0.7f) containerSize * 0.3f else 0f
+    }
+}
+
 /** A TV: a row that remembers which card the remote was on (down into it goes back there). */
 @OptIn(ExperimentalComposeUiApi::class)
 fun Modifier.tvRow(): Modifier = if (Engine.isTv) this.focusRestorer() else this
@@ -179,8 +192,8 @@ fun TvTopNav() {
     )
     val cur = if (onSearch) "search" else tabs.firstOrNull { it.first == W.tab }?.first ?: "home"
     Row(
-        // Down from the menu: into the page - to the card or button the remote was on there, or its first one. (Not left
-        // to the arrows' own search: a page's picture goes up under the menu, so the page doesn't start below it.)
+        // Down from the menu: into the page - to the card or button the remote was on there, or its first one (not
+        // left to the arrows' own search, which can pick something off to one side).
         Modifier.fillMaxWidth().onPreviewKeyEvent { e ->
             if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) { runCatching { TvNav.pageFr.requestFocus() }; true } else false
         }.background(if (Look.low) androidx.compose.ui.graphics.SolidColor(EBg)
