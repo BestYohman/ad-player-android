@@ -335,7 +335,10 @@ fun WatchApp(act: MainActivity) {
                     val page = W.stack.last()
                     val underMenu = !Look.low && (page.kind == "home" || (page.kind == "item" && page.extra != "Season"))
                     val dens = androidx.compose.ui.platform.LocalDensity.current
-                    val topPad = if (underMenu) 0.dp else with(dens) { (navH * shown).toDp() }
+                    // The page itself (what the remote moves into) always starts below the menu - the remote's Down from
+                    // the menu only goes to things below it; a page with a picture is drawn moved up under the menu.
+                    val menuPx = (navH * shown).roundToInt()
+                    val topPad = with(dens) { menuPx.toDp() }
                     // on the menu for a moment: the page goes back to its top (what's at the top of it shows)
                     LaunchedEffect(TvNav.navIn) { if (TvNav.navIn) { delay(350); if (TvNav.navIn) W.scrollTop() } }
                     // a page that opens (not from the menu): the remote goes into it - to the card it was on before, or else
@@ -352,7 +355,12 @@ fun WatchApp(act: MainActivity) {
                         }
                     }
                     Box(Modifier.fillMaxSize().padding(top = topPad).focusRequester(TvNav.pageFr).onFocusChanged { TvNav.pageHas = it.hasFocus }.focusGroup()) {
-                        androidx.compose.runtime.CompositionLocalProvider(LocalPage provides page) { key(page) { PageContent(page) {} } }
+                        Box(if (!underMenu) Modifier.fillMaxSize() else Modifier.fillMaxSize().layout { m, c ->
+                            val pl = m.measure(c.copy(minHeight = c.minHeight + menuPx, maxHeight = c.maxHeight + menuPx))
+                            layout(c.maxWidth, c.maxHeight) { pl.place(0, -menuPx) }
+                        }) {
+                            androidx.compose.runtime.CompositionLocalProvider(LocalPage provides page) { key(page) { PageContent(page) {} } }
+                        }
                         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().widthIn(max = 900.dp)) {
                             if (W.toast.isNotEmpty()) Toast(W.toast)
                             MiniPlayer()
