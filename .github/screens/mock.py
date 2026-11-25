@@ -31,7 +31,7 @@ MOVIES = [
 ]
 EPS = [
     it("e1", "Episode", "The Race Begins", label="The Great Chase, season 1 episode 1: The Race Begins", se=1, ep=1, series_name="The Great Chase",
-       series_id="s_chase", season_id="se1", thumb=img("e1"), poster=img("s_chase"), aired="Sep 5, 2001", rt="44m", length="44 minutes",
+       series_id="s_chase", season_id="se1", thumb=img("e1"), poster=img("s_chase"), series_backdrop=img("s_chase", "Backdrop"), aired="Sep 5, 2001", rt="44m", length="44 minutes",
        overview="The teams begin in New York. They need to travel to Johannesburg, South Africa. Cooperation problems surface early on with a few of the couples."),
     it("e2", "Episode", "Divide and Conquer", label="The Great Chase, season 1 episode 2: Divide and Conquer", se=1, ep=2, series_name="The Great Chase",
        series_id="s_chase", season_id="se1", thumb=img("e2"), aired="Sep 12, 2001", rt="44m", pct=35, resume="15 minutes",

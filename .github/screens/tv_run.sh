@@ -111,6 +111,12 @@ expect "up goes back up to the menu" "$(focused)" "@(Home*|Shows*|Movies*|Books*
 shot tv_24_movie_top 2
 keys 20 1
 expect "down from the menu goes to the buttons" "$(focused)" "@(Play*|Resume*|Play on*|Play together*|Add to*|Mark as*)"
+# along the buttons: the page stays still (it used to move up and down)
+Y1=$(focused | sed -E 's/.*\|\[[0-9]+,([0-9]+)\].*/\1/')
+keys 22 2
+shot tv_26_movie_along 0
+Y2=$(focused | sed -E 's/.*\|\[[0-9]+,([0-9]+)\].*/\1/')
+expect "moving along the buttons doesn't move the page" "$Y2" "$Y1"
 # the player: Back hides the buttons, Back again stops it
 keys 21 6
 expect "left along the buttons reaches Play" "$(focused)" "@(Play *|Resume*)"
@@ -131,6 +137,10 @@ expect "the video is still playing after the first Back" "$(onscreen 'Resume')" 
 keys 4 1; sleep 2
 shot tv_08_after 2
 expect "Back again stops the video (back on the page)" "$(focused)" "@(Play*|Resume*)"
+# an episode's page: the show's big picture
+open "kind=item&id=e1&extra=Episode&title=The%20Race%20Begins"
+sleep 5
+shot tv_27_episode 1
 # Movies: the title and chips scroll away; Sort and filter can be reached
 open "kind=movies"
 sleep 5
