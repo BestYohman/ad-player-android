@@ -2,6 +2,16 @@
 
 Each version below is a release on GitHub (Releases, "v1.8.0" and so on). The newest is also "AD Player (latest)".
 
+## 1.14.6 - 2026-11-25
+- **Google TV and Android TV:**
+  - A show's or movie's page shows its big picture from the top, much bigger, and the menu never covers it: when the menu comes down, the page moves down with it.
+  - An episode's page shows the show's big picture (an episode's own picture is usually small and blurry on a TV).
+  - Moving along the buttons on a page no longer moves the page up and down.
+  - In the player, Continue on a phone is now Play together, and it pauses the video while you choose who to invite. It starts again by itself when they join, or press Play to start now.
+- **Playing together:**
+  - On your own (nobody else has joined, or they've all left), Stop just stops - it doesn't ask about stopping for everyone.
+  - An invitation shows as a notification on the phone, with the app open too, and the app checks for invitations every 10 seconds while it's in the background (it used to be every 30). Once Android has closed the app, invitations show when it's opened again.
+
 ## 1.14.5 - 2026-11-25
 - **Google TV and Android TV:**
   - The menu at the top floats over the page: on Home and on a show's or movie's page the big picture goes right up under it, instead of being cut off below it.

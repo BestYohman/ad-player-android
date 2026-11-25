@@ -89,8 +89,8 @@ shot tv_21_home_top 3
 expect "up at the top reaches the menu" "$(focused)" "@(Home*|Shows*|Movies*|Books*|Search*|Settings*)"
 expect "the top of the page shows again" "$(onscreen 'CONTINUE WATCHING')" "yes"
 # open a card and come back to it (down: the big picture's Resume, then the first row)
-keys 20 2
-CARD=$(focused | cut -d'|' -f1)
+# (down past the big picture's buttons and the update card, when there is one, to the first card)
+CARD=""; for _ in 1 2 3 4; do keys 20 1; CARD=$(focused | cut -d'|' -f1); [[ "$CARD" == @(Resume*|More info*|Play*|Episodes*|Install*|Less*|More*|Home*|Shows*|Movies*) ]] || break; done
 keys 23 1; sleep 3
 shot tv_22_opened 1
 expect "an opened page starts on its first button" "$(focused)" "@(Play*|Resume*|Episodes*|Add*)"
