@@ -80,8 +80,8 @@ keys 19 25
 shot tv_21_home_top 3
 expect "up at the top reaches the menu" "$(focused)" "@(Home*|Shows*|Movies*|Books*|Search*|Settings*)"
 expect "the top of the page shows again" "$(onscreen 'CONTINUE WATCHING')" "yes"
-# open a card and come back to it
-keys 20 3
+# open a card and come back to it (down: the big picture's Resume, then the first row)
+keys 20 2
 CARD=$(focused | cut -d'|' -f1)
 keys 23 1; sleep 3
 shot tv_22_opened 1

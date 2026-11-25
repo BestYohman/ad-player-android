@@ -179,7 +179,11 @@ fun TvTopNav() {
     )
     val cur = if (onSearch) "search" else tabs.firstOrNull { it.first == W.tab }?.first ?: "home"
     Row(
-        Modifier.fillMaxWidth().background(if (Look.low) androidx.compose.ui.graphics.SolidColor(EBg)
+        // Down from the menu: into the page - to the card or button the remote was on there, or its first one. (Not left
+        // to the arrows' own search: a page's picture goes up under the menu, so the page doesn't start below it.)
+        Modifier.fillMaxWidth().onPreviewKeyEvent { e ->
+            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionDown) { runCatching { TvNav.pageFr.requestFocus() }; true } else false
+        }.background(if (Look.low) androidx.compose.ui.graphics.SolidColor(EBg)
             else androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color(0xF00E1116), 0.7f to Color(0xB30E1116), 1f to Color(0x660E1116)))
             .padding(horizontal = 28.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)
