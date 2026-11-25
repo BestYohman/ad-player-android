@@ -1438,8 +1438,8 @@ private fun DetailPage(p: Page, openDrawer: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         if (!float) TopBar(null, openDrawer, heading = false)
         Box(Modifier.fillMaxSize()) {
-        // a TV: the picture is most of the screen, from its top (its bottom fades into the page); a third of the screen
-        // is the screen's height in this page's own size
+        // a TV: the picture is most of the screen (62% of its height, in this page's own size), from its top; its
+        // bottom fades into the page. Moving along the buttons doesn't move the page (TvCalmScroll).
         val tvPicH = if (Engine.isTv) (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp *
             android.content.res.Resources.getSystem().displayMetrics.density / androidx.compose.ui.platform.LocalDensity.current.density * 0.62f).dp else 0.dp
         androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides
@@ -1923,12 +1923,6 @@ private fun BookPage(p: Page, openDrawer: () -> Unit) {
     val title = bd?.s("title")?.ifEmpty { null } ?: item.label
     Column(Modifier.fillMaxSize()) {
         TopBar(null, openDrawer, heading = false)
-        // a TV: the picture is most of the screen, from its top (its bottom fades into the page); a third of the screen
-        // is the screen's height in this page's own size
-        val tvPicH = if (Engine.isTv) (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp *
-            android.content.res.Resources.getSystem().displayMetrics.density / androidx.compose.ui.platform.LocalDensity.current.density * 0.62f).dp else 0.dp
-        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides
-            (if (Engine.isTv) TvCalmScroll else androidx.compose.foundation.gestures.LocalBringIntoViewSpec.current)) {
         LazyColumn(Modifier.fillMaxSize().tvScrollEnds(ls), state = ls, contentPadding = PaddingValues(bottom = 190.dp)) {
             item {
                 Text(title, color = EFg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp,

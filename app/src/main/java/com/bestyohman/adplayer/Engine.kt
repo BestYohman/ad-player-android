@@ -168,7 +168,8 @@ object Engine {
                     delay(5000); n++
                     try {
                         if (foreground && screen == "main") { pollInvites(); if (!isPhone && dev.isNotEmpty()) refreshTv() }
-                        else if (!foreground && screen == "main" && tg == null && n % 6 == 0) pollInvites()
+                        // in the background (while Android keeps the app running): every 10 seconds, for invitations
+                        else if (!foreground && screen == "main" && tg == null && n % 2 == 0) pollInvites()
                     } catch (e: ApiError) {
                         if (e.login) signedOut(e.message ?: "")
                     } catch (e: CancellationException) {
@@ -2049,7 +2050,8 @@ object Engine {
             for (r in rs) {
                 if (seenInvites.add(r.s("id") + if (r.b("invited")) ":i" else "")) {     // (again when an invitation comes for a room already listed)
                     if (foreground) say(inviteLine(r) + " The Join button is at the top.")
-                    else if (r.b("invited")) TogetherNote.show(r.s("id"), inviteLine(r))
+                    // an invitation: a notification on the phone too, with the app open or not
+                    if (r.b("invited")) TogetherNote.show(r.s("id"), inviteLine(r))
                 }
             }
         } catch (e: ApiError) {
