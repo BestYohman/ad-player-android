@@ -2,6 +2,7 @@ package com.bestyohman.adplayer
 
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clipToBounds
 import kotlin.math.roundToInt
 import androidx.compose.foundation.focusGroup
@@ -325,20 +326,24 @@ fun WatchApp(act: MainActivity) {
         if (Engine.isTv) Surface(Modifier.fillMaxSize(), color = EBg) {
             // a TV: the menu down the side, the page beside it (the remote's arrows move between them)
             androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.LocalIndication provides TvFocusIndication) {
-                Box(Modifier.fillMaxSize()) {
+                Column(Modifier.fillMaxSize()) {
                     // the menu slides away while the remote is on the page (it can't be used from there anyway); it's
                     // still just above the page, so Up from the top of the page (or Back) reaches it and it comes back.
-                    // It floats over the page: a page with a picture at the top (Home, a show or movie) has the picture
-                    // go right up under it, as on the web page; other pages start below it.
+                    // A page with a picture at the top (Home, a show or movie) has the picture drawn right up under the
+                    // see-through menu, as on the web page; other pages start below it.
                     val shown by androidx.compose.animation.core.animateFloatAsState(if (TvNav.navIn) 1f else 0f, label = "menu")
                     var navH by remember { mutableIntStateOf(0) }
                     val page = W.stack.last()
                     val underMenu = !Look.low && (page.kind == "home" || (page.kind == "item" && page.extra != "Season"))
-                    val dens = androidx.compose.ui.platform.LocalDensity.current
                     // The page itself (what the remote moves into) always starts below the menu - the remote's Down from
                     // the menu only goes to things below it; a page with a picture is drawn moved up under the menu.
                     val menuPx = (navH * shown).roundToInt()
-                    val topPad = with(dens) { menuPx.toDp() }
+                    Box(Modifier.zIndex(1f).onFocusChanged { TvNav.navIn = it.hasFocus }.clipToBounds().layout { m, c ->
+                        val pl = m.measure(c.copy(minHeight = 0, maxHeight = androidx.compose.ui.unit.Constraints.Infinity))
+                        if (pl.height != navH) navH = pl.height
+                        val h = (pl.height * shown).roundToInt()
+                        layout(pl.width, h) { pl.place(0, h - pl.height) }
+                    }) { TvTopNav() }
                     // on the menu for a moment: the page goes back to its top (what's at the top of it shows)
                     LaunchedEffect(TvNav.navIn) { if (TvNav.navIn) { delay(350); if (TvNav.navIn) W.scrollTop() } }
                     // a page that opens (not from the menu): the remote goes into it - to the card it was on before, or else
@@ -354,7 +359,7 @@ fun WatchApp(act: MainActivity) {
                             if (i >= wait) runCatching { TvNav.pageFr.requestFocus() }
                         }
                     }
-                    Box(Modifier.fillMaxSize().padding(top = topPad).focusRequester(TvNav.pageFr).onFocusChanged { TvNav.pageHas = it.hasFocus }.focusGroup()) {
+                    Box(Modifier.weight(1f).fillMaxWidth().focusRequester(TvNav.pageFr).onFocusChanged { TvNav.pageHas = it.hasFocus }.focusGroup()) {
                         Box(if (!underMenu) Modifier.fillMaxSize() else Modifier.fillMaxSize().layout { m, c ->
                             val pl = m.measure(c.copy(minHeight = c.minHeight + menuPx, maxHeight = c.maxHeight + menuPx))
                             layout(c.maxWidth, c.maxHeight) { pl.place(0, -menuPx) }
@@ -366,12 +371,6 @@ fun WatchApp(act: MainActivity) {
                             MiniPlayer()
                         }
                     }
-                    Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().onFocusChanged { TvNav.navIn = it.hasFocus }.clipToBounds().layout { m, c ->
-                        val pl = m.measure(c.copy(minHeight = 0, maxHeight = androidx.compose.ui.unit.Constraints.Infinity))
-                        if (pl.height != navH) navH = pl.height
-                        val h = (pl.height * shown).roundToInt()
-                        layout(pl.width, h) { pl.place(0, h - pl.height) }
-                    }) { TvTopNav() }
                 }
             }
         } else Surface(Modifier.fillMaxSize(), color = EBg) {
